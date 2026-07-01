@@ -1,0 +1,159 @@
+<template>
+    <lightning-card title="On-Device Gemini Nano" icon-name="utility:einstein">
+        <div class="slds-var-p-horizontal_medium slds-var-p-bottom_medium">
+            <div
+                class="slds-box slds-box_x-small slds-var-m-bottom_small slds-theme_shade"
+            >
+                <lightning-icon
+                    icon-name="utility:info"
+                    size="x-small"
+                    class="slds-var-m-right_x-small"
+                ></lightning-icon>
+                <span class="slds-text-body_small">{statusLabel}</span>
+            </div>
+
+            <template lwc:if={isDownloading}>
+                <lightning-progress-bar
+                    value={downloadPercent}
+                    size="large"
+                    class="slds-var-m-bottom_small"
+                ></lightning-progress-bar>
+            </template>
+
+            <template lwc:if={needsDownload}>
+                <div class="slds-var-m-bottom_small">
+                    <lightning-button
+                        variant="brand"
+                        label="Download model"
+                        title="Download Gemini Nano to this device"
+                        onclick={handleDownload}
+                    ></lightning-button>
+                </div>
+            </template>
+
+            <template lwc:if={isUnavailable}>
+                <div class="slds-text-color_error slds-var-m-bottom_small">
+                    <p>
+                        Enable Chrome's built-in AI to use this component. Use a
+                        supported Chrome build, then turn on the Prompt API
+                        flags at
+                        <code>chrome://flags/#prompt-api-for-gemini-nano</code>
+                        and
+                        <code
+                            >chrome://flags/#optimization-guide-on-device-model</code
+                        >.
+                    </p>
+                    <lightning-button
+                        variant="neutral"
+                        label="Re-check availability"
+                        onclick={detectAvailability}
+                        class="slds-var-m-top_x-small"
+                    ></lightning-button>
+                </div>
+            </template>
+
+            <lightning-accordion allow-multiple-sections-open>
+                <lightning-accordion-section
+                    name="settings"
+                    label="Session settings"
+                >
+                    <lightning-textarea
+                        label="System prompt"
+                        value={systemPrompt}
+                        onchange={handleSystemPromptChange}
+                        disabled={isGenerating}
+                    ></lightning-textarea>
+                    <div class="slds-grid slds-gutters slds-var-m-top_x-small">
+                        <div class="slds-col">
+                            <lightning-input
+                                type="number"
+                                label="Temperature"
+                                step="0.1"
+                                min="0"
+                                max="2"
+                                value={temperature}
+                                onchange={handleTemperatureChange}
+                                disabled={isGenerating}
+                            ></lightning-input>
+                        </div>
+                        <div class="slds-col">
+                            <lightning-input
+                                type="number"
+                                label="Top K"
+                                step="1"
+                                min="1"
+                                value={topK}
+                                onchange={handleTopKChange}
+                                disabled={isGenerating}
+                            ></lightning-input>
+                        </div>
+                    </div>
+                </lightning-accordion-section>
+            </lightning-accordion>
+
+            <div class="gemini-conversation slds-var-m-top_small">
+                <template lwc:if={hasMessages}>
+                    <template for:each={messages} for:item="message">
+                        <div key={message.id} class={message.cssClass}>
+                            <span class="gemini-message__role">
+                                {message.role}
+                            </span>
+                            <p class="gemini-message__text">{message.text}</p>
+                        </div>
+                    </template>
+                </template>
+                <template lwc:else>
+                    <div class="slds-text-color_weak slds-align_absolute-center gemini-empty">
+                        Start a conversation with the on-device model.
+                    </div>
+                </template>
+            </div>
+
+            <div class="slds-var-m-top_small">
+                <lightning-textarea
+                    name="prompt"
+                    label="Your message"
+                    placeholder="Ask Gemini Nano anything... (Ctrl/Cmd + Enter to send)"
+                    value={prompt}
+                    onchange={handlePromptChange}
+                    onkeydown={handleKeyDown}
+                    disabled={isGenerating}
+                ></lightning-textarea>
+            </div>
+
+            <template lwc:if={errorMessage}>
+                <div
+                    class="slds-text-color_error slds-var-m-top_x-small"
+                    role="alert"
+                >
+                    {errorMessage}
+                </div>
+            </template>
+
+            <div class="slds-var-m-top_small slds-grid slds-grid_align-spread">
+                <lightning-button
+                    label="Clear"
+                    title="Clear conversation and reset session"
+                    onclick={handleClear}
+                    disabled={isGenerating}
+                ></lightning-button>
+                <div>
+                    <template lwc:if={isGenerating}>
+                        <lightning-button
+                            variant="destructive"
+                            label="Stop"
+                            onclick={handleStop}
+                            class="slds-var-m-right_x-small"
+                        ></lightning-button>
+                    </template>
+                    <lightning-button
+                        variant="brand"
+                        label="Send"
+                        onclick={handleSend}
+                        disabled={sendDisabled}
+                    ></lightning-button>
+                </div>
+            </div>
+        </div>
+    </lightning-card>
+</template>
