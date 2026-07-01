@@ -1,27 +1,27 @@
-import { LightningElement, track } from 'lwc';
+import { LightningElement, track } from "lwc";
 
 const STATUS = {
-    UNSUPPORTED: 'unsupported',
-    UNAVAILABLE: 'unavailable',
-    DOWNLOADABLE: 'downloadable',
-    DOWNLOADING: 'downloading',
-    AVAILABLE: 'available',
-    CHECKING: 'checking'
+    UNSUPPORTED: "unsupported",
+    UNAVAILABLE: "unavailable",
+    DOWNLOADABLE: "downloadable",
+    DOWNLOADING: "downloading",
+    AVAILABLE: "available",
+    CHECKING: "checking"
 };
 
 const DEFAULT_SYSTEM_PROMPT =
-    'You are a helpful assistant embedded inside a Salesforce Lightning Web Component. Keep answers concise and relevant.';
+    "You are a helpful assistant embedded inside a Salesforce Lightning Web Component. Keep answers concise and relevant.";
 
 export default class GeminiChat extends LightningElement {
     @track messages = [];
     @track availability = STATUS.CHECKING;
     downloadProgress = 0;
-    prompt = '';
+    prompt = "";
     systemPrompt = DEFAULT_SYSTEM_PROMPT;
     temperature = 1;
     topK = 3;
     isGenerating = false;
-    errorMessage = '';
+    errorMessage = "";
 
     _session;
     _abortController;
@@ -36,7 +36,7 @@ export default class GeminiChat extends LightningElement {
     }
 
     get languageModel() {
-        if (typeof window === 'undefined') {
+        if (typeof window === "undefined") {
             return undefined;
         }
         if (window.LanguageModel) {
@@ -95,22 +95,22 @@ export default class GeminiChat extends LightningElement {
     get statusLabel() {
         switch (this.availability) {
             case STATUS.AVAILABLE:
-                return 'Gemini Nano is ready on this device.';
+                return "Gemini Nano is ready on this device.";
             case STATUS.DOWNLOADABLE:
-                return 'Gemini Nano can be downloaded to this device.';
+                return "Gemini Nano can be downloaded to this device.";
             case STATUS.DOWNLOADING:
                 return `Downloading Gemini Nano (${this.downloadPercent}%)...`;
             case STATUS.CHECKING:
-                return 'Checking on-device model availability...';
+                return "Checking on-device model availability...";
             case STATUS.UNSUPPORTED:
-                return 'This browser does not expose the Chrome built-in Prompt API.';
+                return "This browser does not expose the Chrome built-in Prompt API.";
             default:
-                return 'Gemini Nano is not available on this device.';
+                return "Gemini Nano is not available on this device.";
         }
     }
 
     async detectAvailability() {
-        this.errorMessage = '';
+        this.errorMessage = "";
         const model = this.languageModel;
         if (!model) {
             this.availability = STATUS.UNSUPPORTED;
@@ -128,13 +128,13 @@ export default class GeminiChat extends LightningElement {
 
     normalizeAvailability(result) {
         switch (result) {
-            case 'readily':
-            case 'available':
+            case "readily":
+            case "available":
                 return STATUS.AVAILABLE;
-            case 'after-download':
-            case 'downloadable':
+            case "after-download":
+            case "downloadable":
                 return STATUS.DOWNLOADABLE;
-            case 'downloading':
+            case "downloading":
                 return STATUS.DOWNLOADING;
             default:
                 return STATUS.UNAVAILABLE;
@@ -158,7 +158,7 @@ export default class GeminiChat extends LightningElement {
     }
 
     handleKeyDown(event) {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             this.handleSend();
         }
@@ -174,13 +174,13 @@ export default class GeminiChat extends LightningElement {
         }
         const model = this.languageModel;
         if (!model) {
-            throw new Error('The Chrome built-in Prompt API is not available.');
+            throw new Error("The Chrome built-in Prompt API is not available.");
         }
         const options = {
             temperature: this.temperature,
             topK: this.topK,
             monitor: (monitor) => {
-                monitor.addEventListener('downloadprogress', (event) => {
+                monitor.addEventListener("downloadprogress", (event) => {
                     this.availability = STATUS.DOWNLOADING;
                     this.downloadProgress = event.loaded;
                 });
@@ -188,7 +188,7 @@ export default class GeminiChat extends LightningElement {
         };
         if (this.systemPrompt && this.systemPrompt.trim().length > 0) {
             options.initialPrompts = [
-                { role: 'system', content: this.systemPrompt.trim() }
+                { role: "system", content: this.systemPrompt.trim() }
             ];
         }
         this._session = await model.create(options);
@@ -202,10 +202,10 @@ export default class GeminiChat extends LightningElement {
             return;
         }
         const userText = this.prompt.trim();
-        this.prompt = '';
-        this.errorMessage = '';
-        this.appendMessage('user', userText);
-        const assistantMessage = this.appendMessage('assistant', '');
+        this.prompt = "";
+        this.errorMessage = "";
+        this.appendMessage("user", userText);
+        const assistantMessage = this.appendMessage("assistant", "");
         this.isGenerating = true;
         this._abortController = new AbortController();
         try {
@@ -215,10 +215,10 @@ export default class GeminiChat extends LightningElement {
             });
             await this.consumeStream(stream, assistantMessage.id);
         } catch (error) {
-            if (error && error.name === 'AbortError') {
+            if (error && error.name === "AbortError") {
                 this.updateMessage(
                     assistantMessage.id,
-                    this.getMessageText(assistantMessage.id) + ' [stopped]'
+                    this.getMessageText(assistantMessage.id) + " [stopped]"
                 );
             } else {
                 this.errorMessage = this.readableError(error);
@@ -231,8 +231,8 @@ export default class GeminiChat extends LightningElement {
     }
 
     async consumeStream(stream, messageId) {
-        let full = '';
-        let previous = '';
+        let full = "";
+        let previous = "";
         for await (const chunk of stream) {
             if (chunk.startsWith(previous) && previous.length > 0) {
                 full = chunk;
@@ -252,12 +252,12 @@ export default class GeminiChat extends LightningElement {
 
     handleClear() {
         this.messages = [];
-        this.errorMessage = '';
+        this.errorMessage = "";
         this.destroySession();
     }
 
     destroySession() {
-        if (this._session && typeof this._session.destroy === 'function') {
+        if (this._session && typeof this._session.destroy === "function") {
             this._session.destroy();
         }
         this._session = undefined;
@@ -270,23 +270,23 @@ export default class GeminiChat extends LightningElement {
             role,
             text,
             cssClass:
-                role === 'user'
-                    ? 'gemini-message gemini-message_user'
-                    : 'gemini-message gemini-message_assistant'
+                role === "user"
+                    ? "gemini-message gemini-message_user"
+                    : "gemini-message gemini-message_assistant"
         };
         this.messages = [...this.messages, message];
         return message;
     }
 
     updateMessage(id, text) {
-        this.messages = this.messages.map((message) =>
-            message.id === id ? { ...message, text } : message
-        );
+        this.messages = this.messages.map((message) => {
+            return message.id === id ? { ...message, text } : message;
+        });
     }
 
     getMessageText(id) {
         const found = this.messages.find((message) => message.id === id);
-        return found ? found.text : '';
+        return found ? found.text : "";
     }
 
     removeMessage(id) {
@@ -295,9 +295,9 @@ export default class GeminiChat extends LightningElement {
 
     readableError(error) {
         if (!error) {
-            return 'An unknown error occurred.';
+            return "An unknown error occurred.";
         }
-        if (typeof error === 'string') {
+        if (typeof error === "string") {
             return error;
         }
         return error.message || String(error);

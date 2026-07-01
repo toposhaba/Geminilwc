@@ -12,11 +12,11 @@ A Salesforce Lightning Web Component (`geminiChat`) that runs Google's **Gemini 
 
 ## Component
 
-| Item | Value |
-| --- | --- |
-| Bundle | `force-app/main/default/lwc/geminiChat` |
-| Master label | `Gemini Nano Chat` |
-| Targets | App Page, Home Page, Record Page, Experience Cloud pages |
+| Item         | Value                                                    |
+| ------------ | -------------------------------------------------------- |
+| Bundle       | `force-app/main/default/lwc/geminiChat`                  |
+| Master label | `Gemini Nano Chat`                                       |
+| Targets      | App Page, Home Page, Record Page, Experience Cloud pages |
 
 ## Requirements (client / browser)
 
@@ -24,9 +24,9 @@ The component relies on capabilities that only exist in Chrome desktop:
 
 1. A supported Chrome build (Chrome 138+ recommended) on desktop with sufficient hardware (≈22 GB free disk, >4 GB VRAM).
 2. Enable the flags, then restart Chrome:
-   - `chrome://flags/#prompt-api-for-gemini-nano` → **Enabled**
-   - `chrome://flags/#optimization-guide-on-device-model` → **Enabled BypassPerfRequirement**
-3. Let Gemini Nano finish downloading (visible under `chrome://components` → *Optimization Guide On Device Model*).
+    - `chrome://flags/#prompt-api-for-gemini-nano` → **Enabled**
+    - `chrome://flags/#optimization-guide-on-device-model` → **Enabled BypassPerfRequirement**
+3. Let Gemini Nano finish downloading (visible under `chrome://components` → _Optimization Guide On Device Model_).
 
 The component checks `window.LanguageModel` first and falls back to the legacy `window.ai.languageModel` namespace, so it works across recent API iterations.
 
