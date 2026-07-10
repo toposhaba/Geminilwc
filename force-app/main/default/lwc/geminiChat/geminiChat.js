@@ -1,4 +1,4 @@
-import { LightningElement, track } from "lwc";
+import { LightningElement, api, track } from "lwc";
 
 const STATUS = {
     UNSUPPORTED: "unsupported",
@@ -9,26 +9,47 @@ const STATUS = {
     CHECKING: "checking"
 };
 
+const FALLBACK = {
+    NONE: "none",
+    LOADING: "loading",
+    READY: "ready",
+    FAILED: "failed"
+};
+
 const DEFAULT_SYSTEM_PROMPT =
     "You are a helpful assistant embedded inside a Salesforce Lightning Web Component. Keep answers concise and relevant.";
 
 export default class GeminiChat extends LightningElement {
+    @api fallbackModelId = "onnx-community/Qwen2.5-0.5B-Instruct";
+
     @track messages = [];
     @track availability = STATUS.CHECKING;
+    fallbackState = FALLBACK.NONE;
+    fallbackDevice = "";
     downloadProgress = 0;
     prompt = "";
     systemPrompt = DEFAULT_SYSTEM_PROMPT;
-    temperature = 1;
-    topK = 3;
     isGenerating = false;
     errorMessage = "";
 
     _session;
     _abortController;
     _messageId = 0;
+    _fallbackInitStarted = false;
+    _streamingMessageId;
 
     connectedCallback() {
         this.detectAvailability();
+    }
+
+    renderedCallback() {
+        if (
+            this.fallbackState === FALLBACK.LOADING &&
+            !this._fallbackInitStarted
+        ) {
+            this._fallbackInitStarted = true;
+            this.initializeFallback();
+        }
     }
 
     disconnectedCallback() {
@@ -48,16 +69,30 @@ export default class GeminiChat extends LightningElement {
         return undefined;
     }
 
-    get isSupported() {
-        return this.languageModel !== undefined;
+    get fallbackRunner() {
+        return this.template.querySelector("c-local-llm-runner");
+    }
+
+    get usesFallback() {
+        return this.fallbackState !== FALLBACK.NONE;
+    }
+
+    get isFallbackActive() {
+        return this.fallbackState === FALLBACK.READY;
+    }
+
+    get isFallbackLoading() {
+        return this.fallbackState === FALLBACK.LOADING;
     }
 
     get isReady() {
-        return this.availability === STATUS.AVAILABLE;
+        return this.availability === STATUS.AVAILABLE || this.isFallbackActive;
     }
 
     get isDownloading() {
-        return this.availability === STATUS.DOWNLOADING;
+        return (
+            this.availability === STATUS.DOWNLOADING || this.isFallbackLoading
+        );
     }
 
     get isChecking() {
@@ -68,10 +103,18 @@ export default class GeminiChat extends LightningElement {
         return this.availability === STATUS.DOWNLOADABLE;
     }
 
-    get isUnavailable() {
+    get promptApiUnavailable() {
         return (
             this.availability === STATUS.UNAVAILABLE ||
             this.availability === STATUS.UNSUPPORTED
+        );
+    }
+
+    get showFallbackOffer() {
+        return (
+            this.promptApiUnavailable &&
+            (this.fallbackState === FALLBACK.NONE ||
+                this.fallbackState === FALLBACK.FAILED)
         );
     }
 
@@ -93,6 +136,13 @@ export default class GeminiChat extends LightningElement {
     }
 
     get statusLabel() {
+        if (this.isFallbackActive) {
+            const device = this.fallbackDevice === "webgpu" ? "WebGPU" : "WASM";
+            return `Fallback model is running locally in your browser (${device}).`;
+        }
+        if (this.isFallbackLoading) {
+            return `Downloading fallback model (${this.downloadPercent}%)...`;
+        }
         switch (this.availability) {
             case STATUS.AVAILABLE:
                 return "Gemini Nano is ready on this device.";
@@ -149,14 +199,6 @@ export default class GeminiChat extends LightningElement {
         this.systemPrompt = event.target.value;
     }
 
-    handleTemperatureChange(event) {
-        this.temperature = Number(event.target.value);
-    }
-
-    handleTopKChange(event) {
-        this.topK = Number(event.target.value);
-    }
-
     handleKeyDown(event) {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
@@ -165,7 +207,42 @@ export default class GeminiChat extends LightningElement {
     }
 
     async handleDownload() {
-        await this.ensureSession();
+        try {
+            await this.ensureSession();
+        } catch (error) {
+            this.errorMessage = this.readableError(error);
+        }
+    }
+
+    handleLoadFallback() {
+        this.errorMessage = "";
+        this.downloadProgress = 0;
+        this._fallbackInitStarted = false;
+        this.fallbackState = FALLBACK.LOADING;
+    }
+
+    async initializeFallback() {
+        try {
+            const result = await this.fallbackRunner.initialize(
+                this.fallbackModelId
+            );
+            this.fallbackDevice = result.device;
+            this.downloadProgress = 1;
+            this.fallbackState = FALLBACK.READY;
+        } catch (error) {
+            this.fallbackState = FALLBACK.FAILED;
+            this.errorMessage = this.readableError(error);
+        }
+    }
+
+    handleFallbackProgress(event) {
+        this.downloadProgress = event.detail.loaded;
+    }
+
+    handleFallbackChunk(event) {
+        if (this._streamingMessageId) {
+            this.updateMessage(this._streamingMessageId, event.detail.fullText);
+        }
     }
 
     async ensureSession() {
@@ -177,8 +254,6 @@ export default class GeminiChat extends LightningElement {
             throw new Error("The Chrome built-in Prompt API is not available.");
         }
         const options = {
-            temperature: this.temperature,
-            topK: this.topK,
             monitor: (monitor) => {
                 monitor.addEventListener("downloadprogress", (event) => {
                     this.availability = STATUS.DOWNLOADING;
@@ -206,14 +281,14 @@ export default class GeminiChat extends LightningElement {
         this.errorMessage = "";
         this.appendMessage("user", userText);
         const assistantMessage = this.appendMessage("assistant", "");
+        this._streamingMessageId = assistantMessage.id;
         this.isGenerating = true;
-        this._abortController = new AbortController();
         try {
-            const session = await this.ensureSession();
-            const stream = session.promptStreaming(userText, {
-                signal: this._abortController.signal
-            });
-            await this.consumeStream(stream, assistantMessage.id);
+            if (this.isFallbackActive) {
+                await this.sendViaFallback();
+            } else {
+                await this.sendViaPromptApi(userText, assistantMessage.id);
+            }
         } catch (error) {
             if (error && error.name === "AbortError") {
                 this.updateMessage(
@@ -227,26 +302,53 @@ export default class GeminiChat extends LightningElement {
         } finally {
             this.isGenerating = false;
             this._abortController = undefined;
+            this._streamingMessageId = undefined;
         }
     }
 
-    async consumeStream(stream, messageId) {
+    async sendViaPromptApi(userText, messageId) {
+        this._abortController = new AbortController();
+        const session = await this.ensureSession();
+        const stream = session.promptStreaming(userText, {
+            signal: this._abortController.signal
+        });
         let full = "";
-        let previous = "";
         for await (const chunk of stream) {
-            if (chunk.startsWith(previous) && previous.length > 0) {
-                full = chunk;
-            } else {
-                full += chunk;
-            }
-            previous = chunk;
+            full += chunk;
             this.updateMessage(messageId, full);
         }
+    }
+
+    async sendViaFallback() {
+        const chatMessages = this.buildChatMessages();
+        await this.fallbackRunner.generate(chatMessages);
+    }
+
+    buildChatMessages() {
+        const chatMessages = [];
+        if (this.systemPrompt && this.systemPrompt.trim().length > 0) {
+            chatMessages.push({
+                role: "system",
+                content: this.systemPrompt.trim()
+            });
+        }
+        this.messages.forEach((message) => {
+            if (message.id !== this._streamingMessageId) {
+                chatMessages.push({
+                    role: message.role,
+                    content: message.text
+                });
+            }
+        });
+        return chatMessages;
     }
 
     handleStop() {
         if (this._abortController) {
             this._abortController.abort();
+        }
+        if (this.isFallbackActive && this.fallbackRunner) {
+            this.fallbackRunner.stop();
         }
     }
 

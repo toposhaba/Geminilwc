@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Local LLM Engine</title>
+    </head>
+    <body>
+        <script type="module">
+            const NAMESPACE = 'geminiChatLocalLlm';
+            const TRANSFORMERS_URL =
+                'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.web.min.js';
+
+            function post(message) {
+                window.parent.postMessage(
+                    { namespace: NAMESPACE, ...message },
+                    '*'
+                );
+            }
+
+            let lib;
+            try {
+                lib = await import(TRANSFORMERS_URL);
+            } catch (error) {
+                post({
+                    type: 'error',
+                    message: `Failed to load Transformers.js: ${error.message}`
+                });
+                throw error;
+            }
+
+            const { pipeline, TextStreamer, InterruptableStoppingCriteria } =
+                lib;
+
+            let generator;
+            let stoppingCriteria = new InterruptableStoppingCriteria();
+
+            async function detectDevice() {
+                if (navigator.gpu) {
+                    try {
+                        const adapter =
+                            await navigator.gpu.requestAdapter();
+                        if (adapter) {
+                            return { device: 'webgpu', dtype: 'q4f16' };
+                        }
+                    } catch (ignored) {
+                        // fall through to wasm
+                    }
+                }
+                return { device: 'wasm', dtype: 'q4' };
+            }
+
+            async function handleInit(modelId) {
+                try {
+                    const { device, dtype } = await detectDevice();
+                    const files = new Map();
+                    const progressCallback = (progress) => {
+                        if (
+                            progress.status === 'progress' &&
+                            progress.total
+                        ) {
+                            files.set(progress.file, {
+                                loaded: progress.loaded,
+                                total: progress.total
+                            });
+                            let loaded = 0;
+                            let total = 0;
+                            for (const entry of files.values()) {
+                                loaded += entry.loaded;
+                                total += entry.total;
+                            }
+                            post({
+                                type: 'progress',
+                                loaded: total > 0 ? loaded / total : 0
+                            });
+                        }
+                    };
+                    generator = await pipeline('text-generation', modelId, {
+                        device,
+                        dtype,
+                        progress_callback: progressCallback
+                    });
+                    post({ type: 'initialized', device });
+                } catch (error) {
+                    post({
+                        type: 'error',
+                        message: `Failed to initialize model: ${error.message}`
+                    });
+                }
+            }
+
+            async function handleGenerate(id, messages) {
+                if (!generator) {
+                    post({
+                        type: 'error',
+                        id,
+                        message: 'Model is not initialized.'
+                    });
+                    return;
+                }
+                stoppingCriteria.reset();
+                const streamer = new TextStreamer(generator.tokenizer, {
+                    skip_prompt: true,
+                    skip_special_tokens: true,
+                    callback_function: (text) => {
+                        post({ type: 'chunk', id, text });
+                    }
+                });
+                try {
+                    await generator(messages, {
+                        max_new_tokens: 512,
+                        do_sample: false,
+                        streamer,
+                        stopping_criteria: stoppingCriteria
+                    });
+                    post({ type: 'done', id });
+                } catch (error) {
+                    post({ type: 'error', id, message: error.message });
+                }
+            }
+
+            window.addEventListener('message', (event) => {
+                const data = event.data;
+                if (!data || data.namespace !== NAMESPACE) {
+                    return;
+                }
+                if (data.type === 'init') {
+                    handleInit(data.modelId);
+                } else if (data.type === 'generate') {
+                    handleGenerate(data.id, data.messages);
+                } else if (data.type === 'stop') {
+                    stoppingCriteria.interrupt();
+                }
+            });
+
+            post({ type: 'ready' });
+        </script>
+    </body>
+</html>

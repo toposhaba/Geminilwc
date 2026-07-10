@@ -1,5 +1,5 @@
 <template>
-    <lightning-card title="On-Device Gemini Nano" icon-name="utility:einstein">
+    <lightning-card title="On-Device AI Chat" icon-name="utility:einstein">
         <div class="slds-var-p-horizontal_medium slds-var-p-bottom_medium">
             <div
                 class="slds-box slds-box_x-small slds-var-m-bottom_small slds-theme_shade"
@@ -31,25 +31,33 @@
                 </div>
             </template>
 
-            <template lwc:if={isUnavailable}>
-                <div class="slds-text-color_error slds-var-m-bottom_small">
-                    <p>
-                        Enable Chrome's built-in AI to use this component. Use a
-                        supported Chrome build, then turn on the Prompt API
-                        flags at
-                        <code>chrome://flags/#prompt-api-for-gemini-nano</code>
-                        and
-                        <code
-                            >chrome://flags/#optimization-guide-on-device-model</code
-                        >.
+            <template lwc:if={showFallbackOffer}>
+                <div class="slds-var-m-bottom_small">
+                    <p class="slds-text-body_small slds-var-m-bottom_x-small">
+                        Chrome's built-in Gemini Nano is not available here. You
+                        can load a smaller open model that also runs entirely in
+                        your browser (several hundred MB download, cached after
+                        the first load).
                     </p>
+                    <lightning-button
+                        variant="brand"
+                        label="Load local fallback model"
+                        onclick={handleLoadFallback}
+                        class="slds-var-m-right_x-small"
+                    ></lightning-button>
                     <lightning-button
                         variant="neutral"
                         label="Re-check availability"
                         onclick={detectAvailability}
-                        class="slds-var-m-top_x-small"
                     ></lightning-button>
                 </div>
+            </template>
+
+            <template lwc:if={usesFallback}>
+                <c-local-llm-runner
+                    onprogress={handleFallbackProgress}
+                    onchunk={handleFallbackChunk}
+                ></c-local-llm-runner>
             </template>
 
             <lightning-accordion allow-multiple-sections-open>
@@ -63,31 +71,6 @@
                         onchange={handleSystemPromptChange}
                         disabled={isGenerating}
                     ></lightning-textarea>
-                    <div class="slds-grid slds-gutters slds-var-m-top_x-small">
-                        <div class="slds-col">
-                            <lightning-input
-                                type="number"
-                                label="Temperature"
-                                step="0.1"
-                                min="0"
-                                max="2"
-                                value={temperature}
-                                onchange={handleTemperatureChange}
-                                disabled={isGenerating}
-                            ></lightning-input>
-                        </div>
-                        <div class="slds-col">
-                            <lightning-input
-                                type="number"
-                                label="Top K"
-                                step="1"
-                                min="1"
-                                value={topK}
-                                onchange={handleTopKChange}
-                                disabled={isGenerating}
-                            ></lightning-input>
-                        </div>
-                    </div>
                 </lightning-accordion-section>
             </lightning-accordion>
 
@@ -115,7 +98,7 @@
                 <lightning-textarea
                     name="prompt"
                     label="Your message"
-                    placeholder="Ask Gemini Nano anything... (Ctrl/Cmd + Enter to send)"
+                    placeholder="Ask the on-device model anything... (Ctrl/Cmd + Enter to send)"
                     value={prompt}
                     onchange={handlePromptChange}
                     onkeydown={handleKeyDown}
