@@ -1,5 +1,7 @@
 import { LightningElement, api, track } from "lwc";
 import { getOcrPrompt, FORMAT_OPTIONS } from "c/ocrPrompts";
+import { preprocessImageBlob } from "c/imagePreprocessor";
+import OcrProcessor, { formatResult } from "c/ocrProcessor";
 
 const ENGINE = {
     AUTO: "auto",
@@ -21,13 +23,14 @@ export default class VisionOcr extends LightningElement {
     @api ollamaModel = "llama3.2-vision:11b";
 
     @track imagePreviewUrl;
+    @track fileResults = [];
     _ollamaEndpointOverride;
     _ollamaModelOverride;
     engine = ENGINE.AUTO;
     formatType = "markdown";
     language = "en";
     customPrompt = "";
-    result = "";
+    preprocessEnabled = true;
     errorMessage = "";
     isProcessing = false;
     isModelLoading = false;
@@ -35,17 +38,19 @@ export default class VisionOcr extends LightningElement {
     geminiAvailability = "checking";
     localModelReady = false;
 
-    _imageFile;
-    _imageDataUrl;
-    _session;
+    _files = [];
+    _processor;
     _abortController;
+    _currentIndex = -1;
 
     connectedCallback() {
         this.detectGeminiAvailability();
     }
 
     disconnectedCallback() {
-        this.destroySession();
+        if (this._processor) {
+            this._processor.destroy();
+        }
     }
 
     get languageModel() {
@@ -94,11 +99,32 @@ export default class VisionOcr extends LightningElement {
     }
 
     get hasImage() {
-        return Boolean(this._imageDataUrl);
+        return this._files.length > 0;
     }
 
-    get hasResult() {
-        return this.result && this.result.length > 0;
+    get isBatch() {
+        return this._files.length > 1;
+    }
+
+    get fileCountLabel() {
+        return `${this._files.length} images selected`;
+    }
+
+    get hasResults() {
+        return this.fileResults.some((entry) => entry.text || entry.error);
+    }
+
+    get statistics() {
+        const total = this.fileResults.length;
+        const failed = this.fileResults.filter((entry) => entry.error).length;
+        const successful = this.fileResults.filter(
+            (entry) => entry.done && !entry.error
+        ).length;
+        return `${successful} succeeded, ${failed} failed, ${total} total`;
+    }
+
+    get showStatistics() {
+        return !this.isProcessing && this.isBatch && this.hasResults;
     }
 
     get runDisabled() {
@@ -160,6 +186,10 @@ export default class VisionOcr extends LightningElement {
         this.customPrompt = event.target.value;
     }
 
+    handlePreprocessChange(event) {
+        this.preprocessEnabled = event.target.checked;
+    }
+
     get currentOllamaEndpoint() {
         return this._ollamaEndpointOverride || this.ollamaEndpoint;
     }
@@ -177,22 +207,19 @@ export default class VisionOcr extends LightningElement {
     }
 
     handleFileChange(event) {
-        const file = event.target.files && event.target.files[0];
-        if (!file) {
+        const files = event.target.files ? [...event.target.files] : [];
+        if (files.length === 0) {
             return;
         }
         this.errorMessage = "";
-        this.result = "";
-        this._imageFile = file;
+        this.fileResults = [];
+        this._files = files;
+        this.imagePreviewUrl = undefined;
         const reader = new FileReader();
         reader.onload = () => {
-            this._imageDataUrl = reader.result;
             this.imagePreviewUrl = reader.result;
         };
-        reader.onerror = () => {
-            this.errorMessage = "Could not read the selected file.";
-        };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(files[0]);
     }
 
     get ocrPrompt() {
@@ -203,70 +230,74 @@ export default class VisionOcr extends LightningElement {
         );
     }
 
-    get imageBase64() {
-        const dataUrl = this._imageDataUrl || "";
-        const commaIndex = dataUrl.indexOf(",");
-        return commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-    }
-
     async handleRun() {
         if (this.runDisabled) {
             return;
         }
         this.errorMessage = "";
-        this.result = "";
         this.isProcessing = true;
+        this._abortController = new AbortController();
+        this.fileResults = this._files.map((file) => ({
+            name: file.name,
+            text: "",
+            error: "",
+            done: false
+        }));
         try {
             const engine = this.resolvedEngine;
-            if (engine === ENGINE.GEMINI) {
-                await this.runWithGemini();
-            } else if (engine === ENGINE.OLLAMA) {
-                await this.runWithOllama();
-            } else {
-                await this.runWithLocalModel();
-            }
-            this.postProcessResult();
-        } catch (error) {
-            if (!error || error.name !== "AbortError") {
-                this.errorMessage = this.readableError(error);
+            for (let index = 0; index < this._files.length; index++) {
+                if (this._abortController.signal.aborted) {
+                    break;
+                }
+                this._currentIndex = index;
+                try {
+                    if (engine === ENGINE.GEMINI) {
+                        await this.processWithGemini(this._files[index], index);
+                    } else if (engine === ENGINE.OLLAMA) {
+                        await this.processWithOllama(this._files[index], index);
+                    } else {
+                        await this.processWithLocalModel(
+                            this._files[index],
+                            index
+                        );
+                    }
+                    this.patchFileResult(index, { done: true });
+                } catch (error) {
+                    if (error && error.name === "AbortError") {
+                        this.patchFileResult(index, { done: true });
+                        break;
+                    }
+                    this.patchFileResult(index, {
+                        error: this.readableError(error),
+                        done: true
+                    });
+                }
             }
         } finally {
             this.isProcessing = false;
             this._abortController = undefined;
+            this._currentIndex = -1;
         }
     }
 
-    async runWithGemini() {
-        const model = this.languageModel;
-        if (!model) {
-            throw new Error(
-                "The Chrome built-in Prompt API is not available in this browser."
-            );
-        }
-        if (!this._session) {
-            this._session = await model.create({
-                expectedInputs: [{ type: "image" }]
+    async processWithGemini(file, index) {
+        if (!this._processor) {
+            this._processor = new OcrProcessor({
+                languageModel: this.languageModel
             });
         }
-        this._abortController = new AbortController();
-        const stream = this._session.promptStreaming(
-            [
-                {
-                    role: "user",
-                    content: [
-                        { type: "image", value: this._imageFile },
-                        { type: "text", value: this.ocrPrompt }
-                    ]
-                }
-            ],
-            { signal: this._abortController.signal }
-        );
-        for await (const chunk of stream) {
-            this.result += chunk;
-        }
+        const text = await this._processor.processImage(file, {
+            formatType: this.formatType,
+            preprocess: this.preprocessEnabled,
+            customPrompt: this.isCustomFormat ? this.customPrompt : "",
+            language: this.language || "en",
+            signal: this._abortController.signal,
+            onChunk: (partial) => this.patchFileResult(index, { text: partial })
+        });
+        this.patchFileResult(index, { text });
     }
 
-    async runWithLocalModel() {
+    async processWithLocalModel(file, index) {
         const runner = this.template.querySelector("c-local-llm-runner");
         if (!this.localModelReady) {
             this.isModelLoading = true;
@@ -278,19 +309,52 @@ export default class VisionOcr extends LightningElement {
                 this.isModelLoading = false;
             }
         }
-        await runner.generate({
+        const dataUrl = await this.toDataUrl(await this.maybePreprocess(file));
+        const text = await runner.generate({
             prompt: this.ocrPrompt,
-            image: this._imageDataUrl
+            image: dataUrl
+        });
+        this.patchFileResult(index, {
+            text: formatResult(text, this.formatType)
         });
     }
 
-    async runWithOllama() {
+    async processWithOllama(file, index) {
         const runner = this.template.querySelector("c-local-llm-runner");
-        await runner.ollamaGenerate({
+        const dataUrl = await this.toDataUrl(await this.maybePreprocess(file));
+        const commaIndex = dataUrl.indexOf(",");
+        const text = await runner.ollamaGenerate({
             endpoint: this.currentOllamaEndpoint,
             model: this.currentOllamaModel,
             prompt: this.ocrPrompt,
-            imageBase64: this.imageBase64
+            imageBase64:
+                commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl
+        });
+        this.patchFileResult(index, {
+            text: formatResult(text, this.formatType)
+        });
+    }
+
+    maybePreprocess(file) {
+        if (!this.preprocessEnabled) {
+            return Promise.resolve(file);
+        }
+        return preprocessImageBlob(file, this.language || "en");
+    }
+
+    toDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () =>
+                reject(new Error("Could not read the selected file."));
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    patchFileResult(index, patch) {
+        this.fileResults = this.fileResults.map((entry, entryIndex) => {
+            return entryIndex === index ? { ...entry, ...patch } : entry;
         });
     }
 
@@ -299,7 +363,11 @@ export default class VisionOcr extends LightningElement {
     }
 
     handleRunnerChunk(event) {
-        this.result = event.detail.fullText;
+        if (this._currentIndex >= 0) {
+            this.patchFileResult(this._currentIndex, {
+                text: event.detail.fullText
+            });
+        }
     }
 
     handleStop() {
@@ -313,29 +381,19 @@ export default class VisionOcr extends LightningElement {
     }
 
     async handleCopy() {
+        const combined = this.fileResults
+            .filter((entry) => entry.text)
+            .map((entry) => {
+                return this.isBatch
+                    ? `${entry.name}:\n${entry.text}`
+                    : entry.text;
+            })
+            .join("\n\n");
         try {
-            await navigator.clipboard.writeText(this.result);
+            await navigator.clipboard.writeText(combined);
         } catch (ignored) {
             this.errorMessage = "Could not copy to clipboard.";
         }
-    }
-
-    postProcessResult() {
-        if (this.formatType !== "json" || !this.result) {
-            return;
-        }
-        try {
-            this.result = JSON.stringify(JSON.parse(this.result), null, 2);
-        } catch (ignored) {
-            // leave the raw model output when it is not valid JSON
-        }
-    }
-
-    destroySession() {
-        if (this._session && typeof this._session.destroy === "function") {
-            this._session.destroy();
-        }
-        this._session = undefined;
     }
 
     readableError(error) {

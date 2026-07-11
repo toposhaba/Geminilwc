@@ -68,6 +68,15 @@
                 ></lightning-input>
             </template>
 
+            <lightning-input
+                type="checkbox"
+                label="Preprocess images (grayscale, contrast, denoise, threshold)"
+                checked={preprocessEnabled}
+                onchange={handlePreprocessChange}
+                disabled={isProcessing}
+                class="slds-var-m-top_x-small"
+            ></lightning-input>
+
             <template lwc:if={isOllamaEngine}>
                 <div class="slds-grid slds-gutters slds-wrap">
                     <div
@@ -97,17 +106,25 @@
 
             <div class="slds-var-m-top_small">
                 <label class="slds-form-element__label" for="ocr-file-input">
-                    Image
+                    Images
                 </label>
                 <input
                     id="ocr-file-input"
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
+                    multiple
                     onchange={handleFileChange}
                     disabled={isProcessing}
                     class="slds-var-m-bottom_x-small"
                 />
                 <template lwc:if={hasImage}>
+                    <template lwc:if={isBatch}>
+                        <p
+                            class="slds-text-body_small slds-var-m-bottom_x-small"
+                        >
+                            {fileCountLabel}
+                        </p>
+                    </template>
                     <div class="ocr-preview">
                         <img src={imagePreviewUrl} alt="Selected document" />
                     </div>
@@ -125,7 +142,7 @@
 
             <div class="slds-var-m-top_small slds-grid slds-grid_align-spread">
                 <div>
-                    <template lwc:if={hasResult}>
+                    <template lwc:if={hasResults}>
                         <lightning-button
                             label="Copy result"
                             onclick={handleCopy}
@@ -150,10 +167,31 @@
                 </div>
             </div>
 
-            <template lwc:if={hasResult}>
-                <div class="ocr-result slds-var-m-top_small">
-                    <pre>{result}</pre>
-                </div>
+            <template lwc:if={showStatistics}>
+                <p class="slds-text-body_small slds-var-m-top_small">
+                    {statistics}
+                </p>
+            </template>
+
+            <template lwc:if={hasResults}>
+                <template for:each={fileResults} for:item="entry">
+                    <div
+                        key={entry.name}
+                        class="ocr-result slds-var-m-top_small"
+                    >
+                        <template lwc:if={isBatch}>
+                            <p class="ocr-result__name slds-text-title_caps">
+                                {entry.name}
+                            </p>
+                        </template>
+                        <template lwc:if={entry.error}>
+                            <p class="slds-text-color_error">{entry.error}</p>
+                        </template>
+                        <template lwc:else>
+                            <pre>{entry.text}</pre>
+                        </template>
+                    </div>
+                </template>
             </template>
         </div>
     </lightning-card>

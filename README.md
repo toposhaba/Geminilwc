@@ -16,21 +16,31 @@ In both modes, prompts and responses never leave the user's machine.
 
 ## visionOcr (Ollama-OCR port)
 
-A JavaScript/browser port of [Ollama-OCR](https://github.com/imanoop7/Ollama-OCR): upload an image and extract its text with a vision LLM, using the same output-format prompts as the Python original (markdown, plain text, JSON, structured, key-value pairs, table, or a custom prompt) plus its language hint and JSON pretty-printing behavior.
+A JavaScript/browser port of [Ollama-OCR](https://github.com/imanoop7/Ollama-OCR): upload images and extract their text with a vision LLM, using the same output-format prompts as the Python original (markdown, plain text, JSON, structured, key-value pairs, table, or a custom prompt) plus its language hint and JSON pretty-printing behavior.
 
-Instead of requiring a Python backend, it supports three engines, all local to the user's machine:
+**With the default engine, the whole pipeline runs natively in Chrome — no API calls, no CDN downloads, no local installs.** The port consists of:
 
-| Engine                        | What runs it                                                                                                                                                        | Requirements                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Chrome built-in Gemini Nano   | Prompt API multimodal image input                                                                                                                                   | Desktop Chrome 148+, capable hardware             |
-| Local model (Transformers.js) | `HuggingFaceTB/SmolVLM-256M-Instruct` (configurable) in the engine iframe, WebGPU or WASM                                                                           | Any modern desktop browser                        |
-| Ollama server                 | The user's own Ollama at `http://localhost:11434` (default model `llama3.2-vision:11b`), streamed via `/api/generate` — the direct equivalent of the Python package | Ollama running locally with a vision model pulled |
+| Module                  | Python original                                                                                     | JS port                                                                                                                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lwc/ocrProcessor`      | `OCRProcessor` class (`process_image`, `process_batch` with `results`/`errors`/`statistics`)        | Same class shape, backed by Chrome's built-in Prompt API with streaming                                                                                                            |
+| `lwc/imagePreprocessor` | OpenCV preprocessing (grayscale, CLAHE, `fastNlMeansDenoising`, Otsu / adaptive threshold + invert) | Pure JS + Canvas: luminosity grayscale, clip-limited histogram equalization, 3×3 median filter, Otsu threshold (adaptive mean threshold for CJK languages), inverted binary output |
+| `lwc/ocrPrompts`        | Format prompt dictionary                                                                            | Ported verbatim                                                                                                                                                                    |
+
+Preprocessing is on by default (matching the Python `preprocess=True`) and can be toggled off in the UI — for photos or low-contrast scans the raw image sometimes gives better results with multimodal LLMs. Batch mode accepts multiple images, streams each result as it processes, and reports `succeeded / failed / total` statistics like `process_batch`.
+
+Beyond the pure-Chrome default, two optional engines cover other browsers:
+
+| Engine                                | What runs it                                                                                                                                                        | Requirements                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Chrome built-in Gemini Nano (default) | Prompt API multimodal image input — fully native, zero external dependencies                                                                                        | Desktop Chrome 148+, capable hardware                               |
+| Local model (Transformers.js)         | `HuggingFaceTB/SmolVLM-256M-Instruct` (configurable) in the engine iframe, WebGPU or WASM                                                                           | Any modern desktop browser; one-time CDN and Hugging Face downloads |
+| Ollama server                         | The user's own Ollama at `http://localhost:11434` (default model `llama3.2-vision:11b`), streamed via `/api/generate` — the direct equivalent of the Python package | Ollama running locally with a vision model pulled                   |
 
 The default engine mode is **Auto**: Gemini Nano when available, otherwise the Transformers.js model.
 
 **Ollama engine caveats:** the browser calls Ollama directly, so Ollama must allow cross-origin requests from the Lightning static resource origin — start it with `OLLAMA_ORIGINS=*` (or the specific origin). Chrome may also show a Local Network Access permission prompt the first time the page contacts `localhost`.
 
-**Not ported:** PDF-to-image conversion, OpenCV preprocessing (contrast/denoise/threshold), and batch directory processing from the Python original. Single images (PNG/JPEG/WebP) are supported.
+**Not ported:** PDF-to-image conversion — browsers have no native PDF rasterization API, so supporting PDFs would require the PDF.js library, contradicting the zero-dependency goal. Supported inputs are PNG/JPEG/WebP images.
 
 ## What geminiChat does
 

@@ -1,6 +1,10 @@
 import { createElement } from "lwc";
 import VisionOcr from "c/visionOcr";
 
+jest.mock("c/imagePreprocessor", () => ({
+    preprocessImageBlob: jest.fn((blob) => Promise.resolve(blob))
+}));
+
 const NAMESPACE = "geminiChatLocalLlm";
 
 function flushPromises() {
@@ -61,17 +65,21 @@ describe("c-vision-ocr", () => {
         return element;
     }
 
-    async function selectImage(element) {
-        const file = new File(["fake-image-bytes"], "doc.png", {
-            type: "image/png"
-        });
+    async function selectImages(element, names = ["doc.png"]) {
+        const files = names.map(
+            (name) =>
+                new File(["fake-image-bytes"], name, { type: "image/png" })
+        );
         const input = element.shadowRoot.querySelector('input[type="file"]');
-        Object.defineProperty(input, "files", { value: [file] });
+        Object.defineProperty(input, "files", {
+            value: files,
+            configurable: true
+        });
         input.dispatchEvent(new CustomEvent("change"));
         await waitFor(() =>
             Boolean(element.shadowRoot.querySelector(".ocr-preview img"))
         );
-        return file;
+        return files;
     }
 
     function stubRunnerIframe(element) {
@@ -98,6 +106,15 @@ describe("c-vision-ocr", () => {
         );
     }
 
+    function clickExtract(element) {
+        findByProp(
+            element.shadowRoot,
+            "lightning-button",
+            "label",
+            "Extract text"
+        ).click();
+    }
+
     it("falls back to the local engine when Gemini Nano is unsupported", async () => {
         const element = mount();
         await flushPromises();
@@ -115,14 +132,9 @@ describe("c-vision-ocr", () => {
         const element = mount();
         await flushPromises();
         const postedMessages = stubRunnerIframe(element);
-        await selectImage(element);
+        await selectImages(element);
 
-        findByProp(
-            element.shadowRoot,
-            "lightning-button",
-            "label",
-            "Extract text"
-        ).click();
+        clickExtract(element);
         await flushPromises();
 
         sendEngineMessage({ type: "ready" });
@@ -155,7 +167,7 @@ describe("c-vision-ocr", () => {
         });
         sendEngineMessage({ type: "done", id: generateMessage.id });
         await waitFor(() =>
-            Boolean(element.shadowRoot.querySelector(".ocr-result"))
+            Boolean(element.shadowRoot.querySelector(".ocr-result pre"))
         );
 
         expect(
@@ -170,15 +182,10 @@ describe("c-vision-ocr", () => {
         await flushPromises();
 
         const postedMessages = stubRunnerIframe(element);
-        await selectImage(element);
+        await selectImages(element);
         sendEngineMessage({ type: "ready" });
 
-        findByProp(
-            element.shadowRoot,
-            "lightning-button",
-            "label",
-            "Extract text"
-        ).click();
+        clickExtract(element);
         await waitFor(() =>
             postedMessages.some((message) => message.type === "ollamaGenerate")
         );
@@ -202,7 +209,7 @@ describe("c-vision-ocr", () => {
         });
         sendEngineMessage({ type: "done", id: ollamaMessage.id });
         await waitFor(() =>
-            Boolean(element.shadowRoot.querySelector(".ocr-result"))
+            Boolean(element.shadowRoot.querySelector(".ocr-result pre"))
         );
 
         expect(
@@ -224,15 +231,10 @@ describe("c-vision-ocr", () => {
         const element = mount();
         await flushPromises();
 
-        const imageFile = await selectImage(element);
-        findByProp(
-            element.shadowRoot,
-            "lightning-button",
-            "label",
-            "Extract text"
-        ).click();
+        const [imageFile] = await selectImages(element);
+        clickExtract(element);
         await waitFor(() =>
-            Boolean(element.shadowRoot.querySelector(".ocr-result"))
+            Boolean(element.shadowRoot.querySelector(".ocr-result pre"))
         );
 
         expect(window.LanguageModel.availability).toHaveBeenCalledWith({
@@ -253,6 +255,46 @@ describe("c-vision-ocr", () => {
         ).toBe("Total: $100");
     });
 
+    it("processes multiple images and reports batch statistics", async () => {
+        const session = {
+            promptStreaming: jest
+                .fn()
+                .mockReturnValueOnce(createStreamFromChunks(["first result"]))
+                .mockImplementationOnce(() => {
+                    throw new Error("model exploded");
+                }),
+            destroy: jest.fn()
+        };
+        window.LanguageModel = {
+            availability: jest.fn().mockResolvedValue("available"),
+            create: jest.fn().mockResolvedValue(session)
+        };
+        const element = mount();
+        await flushPromises();
+
+        await selectImages(element, ["a.png", "b.png"]);
+        clickExtract(element);
+        await waitFor(
+            () =>
+                element.shadowRoot.querySelectorAll(".ocr-result").length === 2
+        );
+
+        const results = element.shadowRoot.querySelectorAll(".ocr-result");
+        expect(results[0].querySelector("pre").textContent).toBe(
+            "first result"
+        );
+        expect(
+            results[1].querySelector(".slds-text-color_error").textContent
+        ).toBe("model exploded");
+
+        await waitFor(() =>
+            Boolean(element.shadowRoot.textContent.includes("succeeded"))
+        );
+        expect(element.shadowRoot.textContent).toContain(
+            "1 succeeded, 1 failed, 2 total"
+        );
+    });
+
     it("pretty-prints valid JSON results", async () => {
         const session = {
             promptStreaming: jest
@@ -268,15 +310,15 @@ describe("c-vision-ocr", () => {
         await flushPromises();
 
         setCombobox(element, "Output format", "json");
-        await selectImage(element);
-        findByProp(
-            element.shadowRoot,
-            "lightning-button",
-            "label",
-            "Extract text"
-        ).click();
+        await selectImages(element);
+        clickExtract(element);
         await waitFor(() =>
-            Boolean(element.shadowRoot.querySelector(".ocr-result"))
+            Boolean(element.shadowRoot.querySelector(".ocr-result pre"))
+        );
+        await waitFor(() =>
+            element.shadowRoot
+                .querySelector(".ocr-result pre")
+                .textContent.includes("\n")
         );
 
         expect(
@@ -309,18 +351,44 @@ describe("c-vision-ocr", () => {
         customPromptInput.value = "List every phone number in the image";
         customPromptInput.dispatchEvent(new CustomEvent("change"));
 
-        await selectImage(element);
-        findByProp(
-            element.shadowRoot,
-            "lightning-button",
-            "label",
-            "Extract text"
-        ).click();
+        await selectImages(element);
+        clickExtract(element);
         await waitFor(() => session.promptStreaming.mock.calls.length > 0);
 
         const promptArg = session.promptStreaming.mock.calls[0][0];
         expect(promptArg[0].content[1].value).toBe(
             "List every phone number in the image"
         );
+    });
+
+    it("skips preprocessing when the toggle is turned off", async () => {
+        const { preprocessImageBlob } = require("c/imagePreprocessor");
+        const session = {
+            promptStreaming: jest
+                .fn()
+                .mockReturnValue(createStreamFromChunks(["ok"])),
+            destroy: jest.fn()
+        };
+        window.LanguageModel = {
+            availability: jest.fn().mockResolvedValue("available"),
+            create: jest.fn().mockResolvedValue(session)
+        };
+        const element = mount();
+        await flushPromises();
+
+        const toggle = findByProp(
+            element.shadowRoot,
+            "lightning-input",
+            "type",
+            "checkbox"
+        );
+        toggle.checked = false;
+        toggle.dispatchEvent(new CustomEvent("change"));
+
+        await selectImages(element);
+        clickExtract(element);
+        await waitFor(() => session.promptStreaming.mock.calls.length > 0);
+
+        expect(preprocessImageBlob).not.toHaveBeenCalled();
     });
 });
