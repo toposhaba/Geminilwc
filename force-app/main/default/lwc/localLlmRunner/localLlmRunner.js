@@ -22,17 +22,27 @@ export default class LocalLlmRunner extends LightningElement {
     }
 
     @api
-    initialize(modelId) {
+    initialize(modelId, task) {
         if (this._initDeferred) {
             return this._initDeferred.promise;
         }
         this._initDeferred = this.createDeferred();
-        this.postToEngine({ type: "init", modelId });
+        this.postToEngine({ type: "init", modelId, task: task || "text" });
         return this._initDeferred.promise;
     }
 
     @api
-    generate(messages) {
+    generate(payload) {
+        const body = Array.isArray(payload) ? { messages: payload } : payload;
+        return this.startGeneration("generate", body);
+    }
+
+    @api
+    ollamaGenerate(options) {
+        return this.startGeneration("ollamaGenerate", options);
+    }
+
+    startGeneration(type, body) {
         if (this._activeGeneration) {
             return Promise.reject(
                 new Error("A generation is already in progress.")
@@ -41,7 +51,7 @@ export default class LocalLlmRunner extends LightningElement {
         this._requestId += 1;
         const id = `req-${this._requestId}`;
         this._activeGeneration = { id, ...this.createDeferred(), text: "" };
-        this.postToEngine({ type: "generate", id, messages });
+        this.postToEngine({ type, id, ...body });
         return this._activeGeneration.promise;
     }
 

@@ -28,11 +28,21 @@
                 throw error;
             }
 
-            const { pipeline, TextStreamer, InterruptableStoppingCriteria } =
-                lib;
+            const {
+                pipeline,
+                AutoProcessor,
+                AutoModelForVision2Seq,
+                RawImage,
+                TextStreamer,
+                InterruptableStoppingCriteria
+            } = lib;
 
+            let task = 'text';
             let generator;
+            let visionModel;
+            let visionProcessor;
             let stoppingCriteria = new InterruptableStoppingCriteria();
+            let activeAbortController;
 
             async function detectDevice() {
                 if (navigator.gpu) {
@@ -40,45 +50,73 @@
                         const adapter =
                             await navigator.gpu.requestAdapter();
                         if (adapter) {
-                            return { device: 'webgpu', dtype: 'q4f16' };
+                            return 'webgpu';
                         }
                     } catch (ignored) {
                         // fall through to wasm
                     }
                 }
-                return { device: 'wasm', dtype: 'q4' };
+                return 'wasm';
             }
 
-            async function handleInit(modelId) {
-                try {
-                    const { device, dtype } = await detectDevice();
-                    const files = new Map();
-                    const progressCallback = (progress) => {
-                        if (
-                            progress.status === 'progress' &&
-                            progress.total
-                        ) {
-                            files.set(progress.file, {
-                                loaded: progress.loaded,
-                                total: progress.total
-                            });
-                            let loaded = 0;
-                            let total = 0;
-                            for (const entry of files.values()) {
-                                loaded += entry.loaded;
-                                total += entry.total;
-                            }
-                            post({
-                                type: 'progress',
-                                loaded: total > 0 ? loaded / total : 0
-                            });
+            function createProgressCallback() {
+                const files = new Map();
+                return (progress) => {
+                    if (progress.status === 'progress' && progress.total) {
+                        files.set(progress.file, {
+                            loaded: progress.loaded,
+                            total: progress.total
+                        });
+                        let loaded = 0;
+                        let total = 0;
+                        for (const entry of files.values()) {
+                            loaded += entry.loaded;
+                            total += entry.total;
                         }
-                    };
-                    generator = await pipeline('text-generation', modelId, {
-                        device,
-                        dtype,
-                        progress_callback: progressCallback
-                    });
+                        post({
+                            type: 'progress',
+                            loaded: total > 0 ? loaded / total : 0
+                        });
+                    }
+                };
+            }
+
+            async function handleInit(modelId, requestedTask) {
+                try {
+                    task = requestedTask === 'vision' ? 'vision' : 'text';
+                    const device = await detectDevice();
+                    const progress_callback = createProgressCallback();
+                    if (task === 'vision') {
+                        visionProcessor = await AutoProcessor.from_pretrained(
+                            modelId,
+                            { progress_callback }
+                        );
+                        visionModel = await AutoModelForVision2Seq.from_pretrained(
+                            modelId,
+                            {
+                                device,
+                                dtype:
+                                    device === 'webgpu'
+                                        ? {
+                                              embed_tokens: 'fp16',
+                                              vision_encoder: 'q4',
+                                              decoder_model_merged: 'q4'
+                                          }
+                                        : 'q8',
+                                progress_callback
+                            }
+                        );
+                    } else {
+                        generator = await pipeline(
+                            'text-generation',
+                            modelId,
+                            {
+                                device,
+                                dtype: device === 'webgpu' ? 'q4f16' : 'q4',
+                                progress_callback
+                            }
+                        );
+                    }
                     post({ type: 'initialized', device });
                 } catch (error) {
                     post({
@@ -88,7 +126,7 @@
                 }
             }
 
-            async function handleGenerate(id, messages) {
+            async function handleTextGenerate(id, messages) {
                 if (!generator) {
                     post({
                         type: 'error',
@@ -118,17 +156,139 @@
                 }
             }
 
+            async function handleVisionGenerate(id, prompt, imageUrl) {
+                if (!visionModel || !visionProcessor) {
+                    post({
+                        type: 'error',
+                        id,
+                        message: 'Vision model is not initialized.'
+                    });
+                    return;
+                }
+                stoppingCriteria.reset();
+                try {
+                    const image = await RawImage.fromURL(imageUrl);
+                    const messages = [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'image' },
+                                { type: 'text', text: prompt }
+                            ]
+                        }
+                    ];
+                    const text = visionProcessor.apply_chat_template(
+                        messages,
+                        { add_generation_prompt: true }
+                    );
+                    const inputs = await visionProcessor(text, [image]);
+                    const streamer = new TextStreamer(
+                        visionProcessor.tokenizer,
+                        {
+                            skip_prompt: true,
+                            skip_special_tokens: true,
+                            callback_function: (chunk) => {
+                                post({ type: 'chunk', id, text: chunk });
+                            }
+                        }
+                    );
+                    await visionModel.generate({
+                        ...inputs,
+                        max_new_tokens: 1024,
+                        streamer,
+                        stopping_criteria: stoppingCriteria
+                    });
+                    post({ type: 'done', id });
+                } catch (error) {
+                    post({ type: 'error', id, message: error.message });
+                }
+            }
+
+            async function handleOllamaGenerate(id, data) {
+                activeAbortController = new AbortController();
+                try {
+                    const endpoint = (
+                        data.endpoint || 'http://localhost:11434'
+                    ).replace(/\/+$/, '');
+                    const response = await fetch(`${endpoint}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: data.model,
+                            prompt: data.prompt,
+                            stream: true,
+                            images: data.imageBase64
+                                ? [data.imageBase64]
+                                : undefined
+                        }),
+                        signal: activeAbortController.signal
+                    });
+                    if (!response.ok) {
+                        throw new Error(
+                            `Ollama returned HTTP ${response.status}. Check that Ollama is running and OLLAMA_ORIGINS allows this origin.`
+                        );
+                    }
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    for (;;) {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            break;
+                        }
+                        buffer += decoder.decode(value, { stream: true });
+                        let newlineIndex = buffer.indexOf('\n');
+                        while (newlineIndex >= 0) {
+                            const line = buffer.slice(0, newlineIndex).trim();
+                            buffer = buffer.slice(newlineIndex + 1);
+                            if (line) {
+                                const parsed = JSON.parse(line);
+                                if (parsed.error) {
+                                    throw new Error(parsed.error);
+                                }
+                                if (parsed.response) {
+                                    post({
+                                        type: 'chunk',
+                                        id,
+                                        text: parsed.response
+                                    });
+                                }
+                            }
+                            newlineIndex = buffer.indexOf('\n');
+                        }
+                    }
+                    post({ type: 'done', id });
+                } catch (error) {
+                    if (error.name === 'AbortError') {
+                        post({ type: 'done', id });
+                    } else {
+                        post({ type: 'error', id, message: error.message });
+                    }
+                } finally {
+                    activeAbortController = undefined;
+                }
+            }
+
             window.addEventListener('message', (event) => {
                 const data = event.data;
                 if (!data || data.namespace !== NAMESPACE) {
                     return;
                 }
                 if (data.type === 'init') {
-                    handleInit(data.modelId);
+                    handleInit(data.modelId, data.task);
                 } else if (data.type === 'generate') {
-                    handleGenerate(data.id, data.messages);
+                    if (task === 'vision') {
+                        handleVisionGenerate(data.id, data.prompt, data.image);
+                    } else {
+                        handleTextGenerate(data.id, data.messages);
+                    }
+                } else if (data.type === 'ollamaGenerate') {
+                    handleOllamaGenerate(data.id, data);
                 } else if (data.type === 'stop') {
                     stoppingCriteria.interrupt();
+                    if (activeAbortController) {
+                        activeAbortController.abort();
+                    }
                 }
             });
 

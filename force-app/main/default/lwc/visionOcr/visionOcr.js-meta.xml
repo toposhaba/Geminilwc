@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>62.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Vision OCR (On-Device)</masterLabel>
+    <description>Extracts text from images on-device using Chrome's Gemini Nano, a Transformers.js vision model, or a local Ollama server. Ported from the Ollama-OCR Python project.</description>
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__HomePage</target>
+        <target>lightning__RecordPage</target>
+        <target>lightningCommunity__Page</target>
+        <target>lightningCommunity__Default</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__AppPage,lightning__HomePage,lightning__RecordPage">
+            <property
+                name="fallbackModelId"
+                type="String"
+                label="Vision model"
+                default="HuggingFaceTB/SmolVLM-256M-Instruct"
+                description="Hugging Face model id (ONNX vision-language model) used by the Transformers.js engine."
+            />
+            <property
+                name="ollamaEndpoint"
+                type="String"
+                label="Ollama endpoint"
+                default="http://localhost:11434"
+                description="Base URL of the user's local Ollama server."
+            />
+            <property
+                name="ollamaModel"
+                type="String"
+                label="Ollama model"
+                default="llama3.2-vision:11b"
+                description="Vision model name pulled in the user's local Ollama."
+            />
+        </targetConfig>
+        <targetConfig targets="lightningCommunity__Default">
+            <property
+                name="fallbackModelId"
+                type="String"
+                label="Vision model"
+                default="HuggingFaceTB/SmolVLM-256M-Instruct"
+                description="Hugging Face model id (ONNX vision-language model) used by the Transformers.js engine."
+            />
+            <property
+                name="ollamaEndpoint"
+                type="String"
+                label="Ollama endpoint"
+                default="http://localhost:11434"
+                description="Base URL of the user's local Ollama server."
+            />
+            <property
+                name="ollamaModel"
+                type="String"
+                label="Ollama model"
+                default="llama3.2-vision:11b"
+                description="Vision model name pulled in the user's local Ollama."
+            />
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

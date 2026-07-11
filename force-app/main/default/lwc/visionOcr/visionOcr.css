@@ -1,0 +1,30 @@
+.ocr-preview {
+    max-width: 100%;
+    border: 1px solid #e5e5e5;
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+    background-color: #fafaf9;
+}
+
+.ocr-preview img {
+    max-width: 100%;
+    max-height: 20rem;
+    display: block;
+    margin: 0 auto;
+}
+
+.ocr-result {
+    border: 1px solid #e5e5e5;
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    background-color: #fafaf9;
+    max-height: 30rem;
+    overflow-y: auto;
+}
+
+.ocr-result pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+}

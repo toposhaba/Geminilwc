@@ -127,6 +127,60 @@ describe("c-local-llm-runner", () => {
         await expect(initPromise).rejects.toThrow("no webgpu");
     });
 
+    it("passes the task through when initializing", () => {
+        element.initialize("test/vision-model", "vision");
+        sendEngineMessage({ type: "ready" });
+        expect(postedMessages).toEqual([
+            expect.objectContaining({
+                type: "init",
+                modelId: "test/vision-model",
+                task: "vision"
+            })
+        ]);
+    });
+
+    it("sends vision payloads with prompt and image", () => {
+        sendEngineMessage({ type: "ready" });
+        element.generate({
+            prompt: "Extract text",
+            image: "data:image/png;base64,abc"
+        });
+        expect(postedMessages).toEqual([
+            expect.objectContaining({
+                type: "generate",
+                prompt: "Extract text",
+                image: "data:image/png;base64,abc"
+            })
+        ]);
+    });
+
+    it("streams an Ollama generation through the engine", async () => {
+        sendEngineMessage({ type: "ready" });
+        const generatePromise = element.ollamaGenerate({
+            endpoint: "http://localhost:11434",
+            model: "llama3.2-vision:11b",
+            prompt: "Extract text",
+            imageBase64: "abc123"
+        });
+        const message = postedMessages.find(
+            (posted) => posted.type === "ollamaGenerate"
+        );
+        expect(message).toEqual(
+            expect.objectContaining({
+                endpoint: "http://localhost:11434",
+                model: "llama3.2-vision:11b",
+                prompt: "Extract text",
+                imageBase64: "abc123"
+            })
+        );
+
+        sendEngineMessage({ type: "chunk", id: message.id, text: "OCR " });
+        sendEngineMessage({ type: "chunk", id: message.id, text: "output" });
+        sendEngineMessage({ type: "done", id: message.id });
+
+        await expect(generatePromise).resolves.toBe("OCR output");
+    });
+
     it("sends a stop message to the engine", () => {
         sendEngineMessage({ type: "ready" });
         element.stop();
