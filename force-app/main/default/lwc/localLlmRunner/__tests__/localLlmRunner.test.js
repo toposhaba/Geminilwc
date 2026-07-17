@@ -154,33 +154,6 @@ describe("c-local-llm-runner", () => {
         ]);
     });
 
-    it("streams an Ollama generation through the engine", async () => {
-        sendEngineMessage({ type: "ready" });
-        const generatePromise = element.ollamaGenerate({
-            endpoint: "http://localhost:11434",
-            model: "llama3.2-vision:11b",
-            prompt: "Extract text",
-            imageBase64: "abc123"
-        });
-        const message = postedMessages.find(
-            (posted) => posted.type === "ollamaGenerate"
-        );
-        expect(message).toEqual(
-            expect.objectContaining({
-                endpoint: "http://localhost:11434",
-                model: "llama3.2-vision:11b",
-                prompt: "Extract text",
-                imageBase64: "abc123"
-            })
-        );
-
-        sendEngineMessage({ type: "chunk", id: message.id, text: "OCR " });
-        sendEngineMessage({ type: "chunk", id: message.id, text: "output" });
-        sendEngineMessage({ type: "done", id: message.id });
-
-        await expect(generatePromise).resolves.toBe("OCR output");
-    });
-
     it("sends a stop message to the engine", () => {
         sendEngineMessage({ type: "ready" });
         element.stop();

@@ -1,5 +1,5 @@
 import { getOcrPrompt } from "c/ocrPrompts";
-import { preprocessImageBlob } from "c/imagePreprocessor";
+import { preprocessImageBlob, downscaleImageBlob } from "c/imagePreprocessor";
 
 export default class OcrProcessor {
     constructor({ languageModel } = {}) {
@@ -48,8 +48,47 @@ export default class OcrProcessor {
         } = options;
         const input = preprocess
             ? await preprocessImageBlob(image, language)
-            : image;
+            : await downscaleImageBlob(image);
         const prompt = getOcrPrompt(formatType, language, customPrompt);
+        try {
+            const result = await this.runPrompt(input, prompt, signal, onChunk);
+            return formatResult(result, formatType);
+        } catch (error) {
+            if (error && error.name === "AbortError") {
+                throw error;
+            }
+            this.destroy();
+            if (isModelCrash(error)) {
+                throw new Error(
+                    "Chrome's built-in Gemini Nano has disabled itself after repeated crashes on this device. Fully quit and reopen Chrome to reset it, close other GPU-heavy tabs, or switch to the Local model engine."
+                );
+            }
+            const smaller = await downscaleImageBlob(input, 768);
+            try {
+                const result = await this.runPrompt(
+                    smaller,
+                    prompt,
+                    signal,
+                    onChunk
+                );
+                return formatResult(result, formatType);
+            } catch (retryError) {
+                if (retryError && retryError.name === "AbortError") {
+                    throw retryError;
+                }
+                if (isModelCrash(retryError)) {
+                    throw new Error(
+                        "Chrome's built-in Gemini Nano has disabled itself after repeated crashes on this device. Fully quit and reopen Chrome to reset it, close other GPU-heavy tabs, or switch to the Local model engine."
+                    );
+                }
+                throw new Error(
+                    `Gemini Nano could not read this image (${retryError.message || retryError}). Try a smaller or clearer image, or switch to the Local model engine.`
+                );
+            }
+        }
+    }
+
+    async runPrompt(input, prompt, signal, onChunk) {
         const session = await this.ensureSession();
         const stream = session.promptStreaming(
             [
@@ -70,7 +109,7 @@ export default class OcrProcessor {
                 onChunk(result);
             }
         }
-        return formatResult(result, formatType);
+        return result;
     }
 
     async processBatch(images, options = {}) {
@@ -110,6 +149,15 @@ export default class OcrProcessor {
         }
         this._session = undefined;
     }
+}
+
+function isModelCrash(error) {
+    const message = String((error && error.message) || error || "").toLowerCase();
+    return (
+        message.includes("crashed") ||
+        message.includes("process crash") ||
+        message.includes("too many times")
+    );
 }
 
 function formatResult(result, formatType) {

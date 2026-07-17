@@ -175,48 +175,6 @@ describe("c-vision-ocr", () => {
         ).toBe("# Extracted");
     });
 
-    it("runs OCR through a local Ollama server", async () => {
-        const element = mount();
-        await flushPromises();
-        setCombobox(element, "Engine", "ollama");
-        await flushPromises();
-
-        const postedMessages = stubRunnerIframe(element);
-        await selectImages(element);
-        sendEngineMessage({ type: "ready" });
-
-        clickExtract(element);
-        await waitFor(() =>
-            postedMessages.some((message) => message.type === "ollamaGenerate")
-        );
-
-        const ollamaMessage = postedMessages.find(
-            (message) => message.type === "ollamaGenerate"
-        );
-        expect(ollamaMessage).toEqual(
-            expect.objectContaining({
-                endpoint: "http://localhost:11434",
-                model: "llama3.2-vision:11b"
-            })
-        );
-        expect(ollamaMessage.imageBase64).not.toContain("data:");
-        expect(ollamaMessage.imageBase64.length).toBeGreaterThan(0);
-
-        sendEngineMessage({
-            type: "chunk",
-            id: ollamaMessage.id,
-            text: "Invoice #42"
-        });
-        sendEngineMessage({ type: "done", id: ollamaMessage.id });
-        await waitFor(() =>
-            Boolean(element.shadowRoot.querySelector(".ocr-result pre"))
-        );
-
-        expect(
-            element.shadowRoot.querySelector(".ocr-result pre").textContent
-        ).toBe("Invoice #42");
-    });
-
     it("runs OCR through the built-in Gemini Nano when available", async () => {
         const session = {
             promptStreaming: jest

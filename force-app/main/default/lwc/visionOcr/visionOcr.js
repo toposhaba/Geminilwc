@@ -1,37 +1,42 @@
 import { LightningElement, api, track } from "lwc";
-import { getOcrPrompt, FORMAT_OPTIONS } from "c/ocrPrompts";
-import { preprocessImageBlob } from "c/imagePreprocessor";
+import { getOcrPrompt, FORMAT_OPTIONS, LANGUAGE_OPTIONS } from "c/ocrPrompts";
+import {
+    preprocessImageBlob,
+    detectDocumentLikeBlob
+} from "c/imagePreprocessor";
+
+const PREPROCESS_OPTIONS = [
+    { label: "Auto (detect scanned documents)", value: "auto" },
+    { label: "Always binarize (scanned documents)", value: "on" },
+    { label: "Never binarize (photos and color images)", value: "off" }
+];
 import OcrProcessor, { formatResult } from "c/ocrProcessor";
 
 const ENGINE = {
     AUTO: "auto",
     GEMINI: "gemini",
-    LOCAL: "local",
-    OLLAMA: "ollama"
+    LOCAL: "local"
 };
 
 const ENGINE_OPTIONS = [
     { label: "Auto (prefer built-in Gemini Nano)", value: ENGINE.AUTO },
     { label: "Chrome built-in Gemini Nano", value: ENGINE.GEMINI },
-    { label: "Local model (Transformers.js)", value: ENGINE.LOCAL },
-    { label: "Ollama server", value: ENGINE.OLLAMA }
+    { label: "Local model (Transformers.js)", value: ENGINE.LOCAL }
 ];
 
 export default class VisionOcr extends LightningElement {
-    @api fallbackModelId = "HuggingFaceTB/SmolVLM-256M-Instruct";
-    @api ollamaEndpoint = "http://localhost:11434";
-    @api ollamaModel = "llama3.2-vision:11b";
+    @api fallbackModelId = "HuggingFaceTB/SmolVLM-500M-Instruct";
 
     @track imagePreviewUrl;
     @track fileResults = [];
-    _ollamaEndpointOverride;
-    _ollamaModelOverride;
     engine = ENGINE.AUTO;
     formatType = "markdown";
-    language = "en";
+    language = "English";
     customPrompt = "";
-    preprocessEnabled = true;
+    preprocessMode = "auto";
+    autoDetectNote = "";
     errorMessage = "";
+    runnerStatus = "";
     isProcessing = false;
     isModelLoading = false;
     downloadProgress = 0;
@@ -68,6 +73,10 @@ export default class VisionOcr extends LightningElement {
         return FORMAT_OPTIONS;
     }
 
+    get languageOptions() {
+        return LANGUAGE_OPTIONS;
+    }
+
     get isCustomFormat() {
         return this.formatType === "custom";
     }
@@ -88,14 +97,7 @@ export default class VisionOcr extends LightningElement {
     }
 
     get usesRunner() {
-        return (
-            this.resolvedEngine === ENGINE.LOCAL ||
-            this.resolvedEngine === ENGINE.OLLAMA
-        );
-    }
-
-    get isOllamaEngine() {
-        return this.resolvedEngine === ENGINE.OLLAMA;
+        return this.resolvedEngine === ENGINE.LOCAL;
     }
 
     get hasImage() {
@@ -136,6 +138,9 @@ export default class VisionOcr extends LightningElement {
     }
 
     get statusLabel() {
+        if (this.runnerStatus) {
+            return this.runnerStatus;
+        }
         if (this.isModelLoading) {
             return `Downloading vision model (${this.downloadPercent}%)...`;
         }
@@ -144,8 +149,6 @@ export default class VisionOcr extends LightningElement {
                 return this.geminiUsable
                     ? "Using Chrome's built-in Gemini Nano (on-device)."
                     : "Gemini Nano is not available in this browser. Pick another engine.";
-            case ENGINE.OLLAMA:
-                return `Using Ollama at ${this.currentOllamaEndpoint} (${this.currentOllamaModel}).`;
             default:
                 return this.localModelReady
                     ? "Local vision model is ready (runs in your browser)."
@@ -179,7 +182,7 @@ export default class VisionOcr extends LightningElement {
     }
 
     handleLanguageChange(event) {
-        this.language = event.target.value;
+        this.language = event.detail.value;
     }
 
     handleCustomPromptChange(event) {
@@ -187,23 +190,30 @@ export default class VisionOcr extends LightningElement {
     }
 
     handlePreprocessChange(event) {
-        this.preprocessEnabled = event.target.checked;
+        this.preprocessMode = event.detail.value;
+        this.autoDetectNote = "";
     }
 
-    get currentOllamaEndpoint() {
-        return this._ollamaEndpointOverride || this.ollamaEndpoint;
+    get preprocessOptions() {
+        return PREPROCESS_OPTIONS;
     }
 
-    get currentOllamaModel() {
-        return this._ollamaModelOverride || this.ollamaModel;
-    }
-
-    handleOllamaEndpointChange(event) {
-        this._ollamaEndpointOverride = event.target.value;
-    }
-
-    handleOllamaModelChange(event) {
-        this._ollamaModelOverride = event.target.value;
+    async resolvePreprocess(file) {
+        if (this.preprocessMode === "on") {
+            return true;
+        }
+        if (this.preprocessMode === "off") {
+            return false;
+        }
+        try {
+            const { isDocument } = await detectDocumentLikeBlob(file);
+            this.autoDetectNote = isDocument
+                ? "Auto-detected a scanned document: binarizing."
+                : "Auto-detected a photo/color image: using the original.";
+            return isDocument;
+        } catch (ignored) {
+            return false;
+        }
     }
 
     handleFileChange(event) {
@@ -225,7 +235,7 @@ export default class VisionOcr extends LightningElement {
     get ocrPrompt() {
         return getOcrPrompt(
             this.formatType,
-            this.language || "en",
+            this.language || "English",
             this.isCustomFormat ? this.customPrompt : ""
         );
     }
@@ -235,6 +245,7 @@ export default class VisionOcr extends LightningElement {
             return;
         }
         this.errorMessage = "";
+        this.runnerStatus = "";
         this.isProcessing = true;
         this._abortController = new AbortController();
         this.fileResults = this._files.map((file) => ({
@@ -253,8 +264,6 @@ export default class VisionOcr extends LightningElement {
                 try {
                     if (engine === ENGINE.GEMINI) {
                         await this.processWithGemini(this._files[index], index);
-                    } else if (engine === ENGINE.OLLAMA) {
-                        await this.processWithOllama(this._files[index], index);
                     } else {
                         await this.processWithLocalModel(
                             this._files[index],
@@ -288,9 +297,9 @@ export default class VisionOcr extends LightningElement {
         }
         const text = await this._processor.processImage(file, {
             formatType: this.formatType,
-            preprocess: this.preprocessEnabled,
+            preprocess: await this.resolvePreprocess(file),
             customPrompt: this.isCustomFormat ? this.customPrompt : "",
-            language: this.language || "en",
+            language: this.language || "English",
             signal: this._abortController.signal,
             onChunk: (partial) => this.patchFileResult(index, { text: partial })
         });
@@ -319,27 +328,12 @@ export default class VisionOcr extends LightningElement {
         });
     }
 
-    async processWithOllama(file, index) {
-        const runner = this.template.querySelector("c-local-llm-runner");
-        const dataUrl = await this.toDataUrl(await this.maybePreprocess(file));
-        const commaIndex = dataUrl.indexOf(",");
-        const text = await runner.ollamaGenerate({
-            endpoint: this.currentOllamaEndpoint,
-            model: this.currentOllamaModel,
-            prompt: this.ocrPrompt,
-            imageBase64:
-                commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl
-        });
-        this.patchFileResult(index, {
-            text: formatResult(text, this.formatType)
-        });
-    }
-
-    maybePreprocess(file) {
-        if (!this.preprocessEnabled) {
-            return Promise.resolve(file);
+    async maybePreprocess(file) {
+        const shouldPreprocess = await this.resolvePreprocess(file);
+        if (!shouldPreprocess) {
+            return file;
         }
-        return preprocessImageBlob(file, this.language || "en");
+        return preprocessImageBlob(file, this.language || "English");
     }
 
     toDataUrl(blob) {
@@ -360,6 +354,10 @@ export default class VisionOcr extends LightningElement {
 
     handleRunnerProgress(event) {
         this.downloadProgress = event.detail.loaded;
+    }
+
+    handleRunnerStatus(event) {
+        this.runnerStatus = event.detail.message;
     }
 
     handleRunnerChunk(event) {

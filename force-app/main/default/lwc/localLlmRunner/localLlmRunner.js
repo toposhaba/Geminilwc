@@ -10,8 +10,17 @@ export default class LocalLlmRunner extends LightningElement {
     _outbox = [];
     _requestId = 0;
     _initDeferred;
+    _initTimeout;
+    _initProgressed = false;
     _activeGeneration;
     _boundHandleMessage = this.handleMessage.bind(this);
+
+    _initFailureMessage() {
+        if (this._engineReady) {
+            return "The local model didn't start downloading. It may be blocked by your network or by Salesforce CSP. Try the Chrome built-in Gemini Nano engine instead.";
+        }
+        return "Couldn't load the on-device OCR engine (Transformers.js) from the CDN, and running it needs WebAssembly. Both are blocked by Salesforce CSP by default. Use the Chrome built-in Gemini Nano engine, or add the required hosts under Setup > CSP Trusted Sites.";
+    }
 
     connectedCallback() {
         window.addEventListener("message", this._boundHandleMessage);
@@ -19,6 +28,10 @@ export default class LocalLlmRunner extends LightningElement {
 
     disconnectedCallback() {
         window.removeEventListener("message", this._boundHandleMessage);
+        if (this._initTimeout) {
+            clearTimeout(this._initTimeout);
+            this._initTimeout = undefined;
+        }
     }
 
     @api
@@ -27,19 +40,37 @@ export default class LocalLlmRunner extends LightningElement {
             return this._initDeferred.promise;
         }
         this._initDeferred = this.createDeferred();
+        this._initProgressed = false;
         this.postToEngine({ type: "init", modelId, task: task || "text" });
+        this._initTimeout = setTimeout(() => {
+            if (this._initDeferred && !this._initProgressed) {
+                this.settleInit(new Error(this._initFailureMessage()));
+            }
+        }, 30000);
         return this._initDeferred.promise;
+    }
+
+    settleInit(error, value) {
+        if (this._initTimeout) {
+            clearTimeout(this._initTimeout);
+            this._initTimeout = undefined;
+        }
+        const deferred = this._initDeferred;
+        this._initDeferred = undefined;
+        if (!deferred) {
+            return;
+        }
+        if (error) {
+            deferred.reject(error);
+        } else {
+            deferred.resolve(value);
+        }
     }
 
     @api
     generate(payload) {
         const body = Array.isArray(payload) ? { messages: payload } : payload;
         return this.startGeneration("generate", body);
-    }
-
-    @api
-    ollamaGenerate(options) {
-        return this.startGeneration("ollamaGenerate", options);
     }
 
     startGeneration(type, body) {
@@ -106,6 +137,7 @@ export default class LocalLlmRunner extends LightningElement {
                 this.flushOutbox();
                 break;
             case "progress":
+                this._initProgressed = true;
                 this.dispatchEvent(
                     new CustomEvent("progress", {
                         detail: { loaded: data.loaded }
@@ -113,8 +145,26 @@ export default class LocalLlmRunner extends LightningElement {
                 );
                 break;
             case "initialized":
-                if (this._initDeferred) {
-                    this._initDeferred.resolve({ device: data.device });
+                this.settleInit(undefined, { device: data.device });
+                break;
+            case "status":
+                this.dispatchEvent(
+                    new CustomEvent("status", {
+                        detail: { message: data.message }
+                    })
+                );
+                break;
+            case "reset":
+                if (
+                    this._activeGeneration &&
+                    this._activeGeneration.id === data.id
+                ) {
+                    this._activeGeneration.text = "";
+                    this.dispatchEvent(
+                        new CustomEvent("chunk", {
+                            detail: { text: "", fullText: "" }
+                        })
+                    );
                 }
                 break;
             case "chunk":
@@ -164,8 +214,7 @@ export default class LocalLlmRunner extends LightningElement {
             return;
         }
         if (this._initDeferred) {
-            this._initDeferred.reject(error);
-            this._initDeferred = undefined;
+            this.settleInit(error);
         }
         if (this._activeGeneration) {
             this._activeGeneration.reject(error);

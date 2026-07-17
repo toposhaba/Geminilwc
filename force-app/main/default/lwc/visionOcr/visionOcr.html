@@ -24,6 +24,7 @@
                 <c-local-llm-runner
                     onprogress={handleRunnerProgress}
                     onchunk={handleRunnerChunk}
+                    onstatus={handleRunnerStatus}
                 ></c-local-llm-runner>
             </template>
 
@@ -58,50 +59,30 @@
                 ></lightning-textarea>
             </template>
             <template lwc:else>
-                <lightning-input
-                    type="text"
+                <lightning-combobox
                     label="Language"
                     value={language}
+                    options={languageOptions}
                     onchange={handleLanguageChange}
                     disabled={isProcessing}
                     class="slds-var-m-top_x-small"
-                ></lightning-input>
+                ></lightning-combobox>
             </template>
 
-            <lightning-input
-                type="checkbox"
-                label="Preprocess images (grayscale, contrast, denoise, threshold)"
-                checked={preprocessEnabled}
+            <lightning-combobox
+                name="preprocessMode"
+                label="Image preprocessing"
+                value={preprocessMode}
+                options={preprocessOptions}
                 onchange={handlePreprocessChange}
                 disabled={isProcessing}
+                field-level-help="Binarizing (black/white threshold) only helps scanned documents. Auto detects whether each image looks like a document and decides for you."
                 class="slds-var-m-top_x-small"
-            ></lightning-input>
-
-            <template lwc:if={isOllamaEngine}>
-                <div class="slds-grid slds-gutters slds-wrap">
-                    <div
-                        class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2"
-                    >
-                        <lightning-input
-                            type="text"
-                            label="Ollama endpoint"
-                            value={currentOllamaEndpoint}
-                            onchange={handleOllamaEndpointChange}
-                            disabled={isProcessing}
-                        ></lightning-input>
-                    </div>
-                    <div
-                        class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2"
-                    >
-                        <lightning-input
-                            type="text"
-                            label="Ollama model"
-                            value={currentOllamaModel}
-                            onchange={handleOllamaModelChange}
-                            disabled={isProcessing}
-                        ></lightning-input>
-                    </div>
-                </div>
+            ></lightning-combobox>
+            <template lwc:if={autoDetectNote}>
+                <p class="slds-text-body_small slds-text-color_weak slds-var-m-top_xx-small">
+                    {autoDetectNote}
+                </p>
             </template>
 
             <div class="slds-var-m-top_small">

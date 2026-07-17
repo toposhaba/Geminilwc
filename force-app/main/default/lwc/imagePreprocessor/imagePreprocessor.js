@@ -1,4 +1,51 @@
 const CJK_LANGUAGES = ["japanese", "chinese", "zh", "korean"];
+const MAX_IMAGE_DIMENSION = 1024;
+
+function scaledDimensions(width, height, maxDimension = MAX_IMAGE_DIMENSION) {
+    const largest = Math.max(width, height);
+    if (largest <= maxDimension) {
+        return { width, height };
+    }
+    const ratio = maxDimension / largest;
+    return {
+        width: Math.max(1, Math.round(width * ratio)),
+        height: Math.max(1, Math.round(height * ratio))
+    };
+}
+
+function blobFromCanvas(canvas) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(
+            (result) => {
+                if (result) {
+                    resolve(result);
+                } else {
+                    reject(new Error("Could not encode the image."));
+                }
+            },
+            "image/jpeg",
+            0.95
+        );
+    });
+}
+
+async function downscaleImageBlob(blob, maxDimension = MAX_IMAGE_DIMENSION) {
+    const bitmap = await createImageBitmap(blob);
+    const { width, height } = scaledDimensions(
+        bitmap.width,
+        bitmap.height,
+        maxDimension
+    );
+    if (width === bitmap.width && height === bitmap.height) {
+        return blob;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0, width, height);
+    return blobFromCanvas(canvas);
+}
 
 function toGrayscale(imageData) {
     const { data, width, height } = imageData;
@@ -164,29 +211,72 @@ function preprocessImageData(imageData, language = "en") {
     return imageData;
 }
 
+async function detectDocumentLikeBlob(blob) {
+    const bitmap = await createImageBitmap(blob);
+    const { width, height } = scaledDimensions(bitmap.width, bitmap.height, 256);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0, width, height);
+    const { data } = context.getImageData(0, 0, width, height);
+    const total = width * height;
+    if (total === 0) {
+        return { isDocument: false };
+    }
+    let nearWhite = 0;
+    let dark = 0;
+    let colorful = 0;
+    let saturationSum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+        const saturation = max === 0 ? 0 : (max - min) / max;
+        saturationSum += saturation;
+        if (saturation > 0.15 && max > 40) {
+            colorful += 1;
+        }
+        if (luminance > 200) {
+            nearWhite += 1;
+        } else if (luminance < 100) {
+            dark += 1;
+        }
+    }
+    const whiteRatio = nearWhite / total;
+    const darkRatio = dark / total;
+    const colorRatio = colorful / total;
+    const meanSaturation = saturationSum / total;
+    const isDocument =
+        whiteRatio > 0.5 &&
+        colorRatio < 0.12 &&
+        meanSaturation < 0.12 &&
+        darkRatio > 0.005 &&
+        darkRatio < 0.5;
+    return {
+        isDocument,
+        whiteRatio,
+        darkRatio,
+        colorRatio,
+        meanSaturation
+    };
+}
+
 async function preprocessImageBlob(blob, language = "en") {
     const bitmap = await createImageBitmap(blob);
+    const { width, height } = scaledDimensions(bitmap.width, bitmap.height);
     const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d");
-    context.drawImage(bitmap, 0, 0);
+    context.drawImage(bitmap, 0, 0, width, height);
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     preprocessImageData(imageData, language);
     context.putImageData(imageData, 0, 0);
-    return new Promise((resolve, reject) => {
-        canvas.toBlob(
-            (result) => {
-                if (result) {
-                    resolve(result);
-                } else {
-                    reject(new Error("Could not encode preprocessed image."));
-                }
-            },
-            "image/jpeg",
-            0.95
-        );
-    });
+    return blobFromCanvas(canvas);
 }
 
 export {
@@ -197,5 +287,9 @@ export {
     applyBinaryInverted,
     adaptiveThresholdInverted,
     preprocessImageData,
-    preprocessImageBlob
+    preprocessImageBlob,
+    downscaleImageBlob,
+    detectDocumentLikeBlob,
+    scaledDimensions,
+    MAX_IMAGE_DIMENSION
 };

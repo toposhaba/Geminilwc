@@ -60,7 +60,28 @@ const FORMAT_OPTIONS = [
     { label: "Custom prompt", value: "custom" }
 ];
 
-function getOcrPrompt(formatType, language = "en", customPrompt = "") {
+const LANGUAGE_OPTIONS = [
+    { label: "English", value: "English" },
+    { label: "Spanish", value: "Spanish" },
+    { label: "French", value: "French" },
+    { label: "German", value: "German" },
+    { label: "Italian", value: "Italian" },
+    { label: "Portuguese", value: "Portuguese" },
+    { label: "Dutch", value: "Dutch" },
+    { label: "Polish", value: "Polish" },
+    { label: "Turkish", value: "Turkish" },
+    { label: "Russian", value: "Russian" },
+    { label: "Arabic", value: "Arabic" },
+    { label: "Hebrew", value: "Hebrew" },
+    { label: "Hindi", value: "Hindi" },
+    { label: "Thai", value: "Thai" },
+    { label: "Vietnamese", value: "Vietnamese" },
+    { label: "Chinese", value: "Chinese" },
+    { label: "Japanese", value: "Japanese" },
+    { label: "Korean", value: "Korean" }
+];
+
+function getOcrPrompt(formatType, language = "English", customPrompt = "") {
     if (customPrompt && customPrompt.trim().length > 0) {
         return customPrompt.trim();
     }
@@ -68,4 +89,4 @@ function getOcrPrompt(formatType, language = "en", customPrompt = "") {
     return builder(language);
 }
 
-export { getOcrPrompt, FORMAT_OPTIONS };
+export { getOcrPrompt, FORMAT_OPTIONS, LANGUAGE_OPTIONS };
