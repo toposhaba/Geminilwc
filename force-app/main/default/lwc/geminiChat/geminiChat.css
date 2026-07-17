@@ -1,0 +1,46 @@
+.gemini-conversation {
+    max-height: 24rem;
+    overflow-y: auto;
+    border: 1px solid #e5e5e5;
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    background-color: #fafaf9;
+}
+
+.gemini-empty {
+    min-height: 6rem;
+}
+
+.gemini-message {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    max-width: 85%;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.gemini-message__role {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+    margin-bottom: 0.15rem;
+}
+
+.gemini-message__text {
+    margin: 0;
+}
+
+.gemini-message_user {
+    margin-left: auto;
+    background-color: #eef4ff;
+    border: 1px solid #d8e3ff;
+}
+
+.gemini-message_assistant {
+    margin-right: auto;
+    background-color: #ffffff;
+    border: 1px solid #e5e5e5;
+}

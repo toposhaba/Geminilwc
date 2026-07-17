@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Local LLM Engine</title>
+        <script type="importmap">
+            {
+                "imports": {
+                    "onnxruntime-common": "./ort.webgpu.bundle.min.js",
+                    "onnxruntime-web": "./ort.webgpu.bundle.min.js",
+                    "onnxruntime-web/webgpu": "./ort.webgpu.bundle.min.js"
+                }
+            }
+        </script>
+    </head>
+    <body>
+        <script type="module">
+            const NAMESPACE = 'geminiChatLocalLlm';
+            const TRANSFORMERS_URL = './transformers.web.min.js';
+
+            function post(message) {
+                window.parent.postMessage(
+                    { namespace: NAMESPACE, ...message },
+                    '*'
+                );
+            }
+
+            let lib;
+            try {
+                lib = await import(TRANSFORMERS_URL);
+            } catch (error) {
+                post({
+                    type: 'error',
+                    message: `Failed to load Transformers.js: ${error.message}`
+                });
+                throw error;
+            }
+
+            const {
+                env,
+                pipeline,
+                AutoProcessor,
+                AutoModelForVision2Seq,
+                RawImage,
+                TextStreamer,
+                InterruptableStoppingCriteria
+            } = lib;
+
+            if (env && env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+                env.backends.onnx.wasm.numThreads = 1;
+            }
+            if (env) {
+                env.allowRemoteModels = true;
+                env.allowLocalModels = false;
+            }
+
+            let task = 'text';
+            let generator;
+            let visionModel;
+            let visionProcessor;
+            let currentModelId;
+            let currentDevice = 'wasm';
+            let stoppingCriteria = new InterruptableStoppingCriteria();
+            let activeAbortController;
+            let activeGen = null;
+
+            function isGpuError(message) {
+                if (!message) {
+                    return false;
+                }
+                const text = String(message).toLowerCase();
+                return (
+                    text.includes('webgpu') ||
+                    text.includes('d3d12') ||
+                    text.includes('outofmemory') ||
+                    text.includes('out of memory') ||
+                    text.includes('e_outofmemory') ||
+                    text.includes('device lost') ||
+                    text.includes('ortrun')
+                );
+            }
+
+            async function fallbackToCpuAndRetry(reason) {
+                if (!activeGen || activeGen.handling || currentDevice !== 'webgpu') {
+                    return false;
+                }
+                const gen = activeGen;
+                gen.handling = true;
+                try {
+                    post({
+                        type: 'status',
+                        message: 'GPU ran out of memory, switching to CPU…'
+                    });
+                    post({ type: 'reset', id: gen.id });
+                    currentDevice = 'wasm';
+                    if (gen.type === 'vision') {
+                        visionModel = await buildVisionModel('wasm');
+                        await runVisionGeneration(gen.id, gen.prompt, gen.imageUrl);
+                    } else {
+                        generator = await buildTextModel('wasm');
+                        await runTextGeneration(gen.id, gen.messages);
+                    }
+                    post({ type: 'done', id: gen.id });
+                } catch (retryError) {
+                    post({
+                        type: 'error',
+                        id: gen.id,
+                        message: retryError.message
+                    });
+                } finally {
+                    if (activeGen === gen) {
+                        activeGen = null;
+                    }
+                }
+                return true;
+            }
+
+            async function detectDevice() {
+                if (navigator.gpu) {
+                    try {
+                        const adapter = await navigator.gpu.requestAdapter();
+                        if (adapter) {
+                            return 'webgpu';
+                        }
+                    } catch (ignored) {
+                        return 'wasm';
+                    }
+                }
+                return 'wasm';
+            }
+
+            function buildVisionModel(device) {
+                return AutoModelForVision2Seq.from_pretrained(currentModelId, {
+                    device,
+                    dtype:
+                        device === 'webgpu'
+                            ? {
+                                  embed_tokens: 'fp16',
+                                  vision_encoder: 'q4',
+                                  decoder_model_merged: 'q4'
+                              }
+                            : 'q8',
+                    progress_callback: createProgressCallback()
+                });
+            }
+
+            function buildTextModel(device) {
+                return pipeline('text-generation', currentModelId, {
+                    device,
+                    dtype: device === 'webgpu' ? 'q4f16' : 'q4',
+                    progress_callback: createProgressCallback()
+                });
+            }
+
+            function createProgressCallback() {
+                const files = new Map();
+                return (progress) => {
+                    if (progress.status === 'progress' && progress.total) {
+                        files.set(progress.file, {
+                            loaded: progress.loaded,
+                            total: progress.total
+                        });
+                        let loaded = 0;
+                        let total = 0;
+                        for (const entry of files.values()) {
+                            loaded += entry.loaded;
+                            total += entry.total;
+                        }
+                        post({
+                            type: 'progress',
+                            loaded: total > 0 ? loaded / total : 0
+                        });
+                    }
+                };
+            }
+
+            async function handleInit(modelId, requestedTask) {
+                try {
+                    task = requestedTask === 'vision' ? 'vision' : 'text';
+                    currentModelId = modelId;
+                    let device = task === 'vision' ? 'wasm' : await detectDevice();
+                    if (task === 'vision') {
+                        visionProcessor =
+                            await AutoProcessor.from_pretrained(modelId, {
+                                progress_callback: createProgressCallback()
+                            });
+                        try {
+                            visionModel = await buildVisionModel(device);
+                        } catch (deviceError) {
+                            if (device !== 'webgpu') {
+                                throw deviceError;
+                            }
+                            post({
+                                type: 'status',
+                                message:
+                                    'GPU not usable, loading CPU model instead…'
+                            });
+                            device = 'wasm';
+                            visionModel = await buildVisionModel(device);
+                        }
+                    } else {
+                        try {
+                            generator = await buildTextModel(device);
+                        } catch (deviceError) {
+                            if (device !== 'webgpu') {
+                                throw deviceError;
+                            }
+                            post({
+                                type: 'status',
+                                message:
+                                    'GPU not usable, loading CPU model instead…'
+                            });
+                            device = 'wasm';
+                            generator = await buildTextModel(device);
+                        }
+                    }
+                    currentDevice = device;
+                    post({ type: 'initialized', device });
+                } catch (error) {
+                    post({
+                        type: 'error',
+                        message: `Failed to initialize model: ${error.message}`
+                    });
+                }
+            }
+
+            async function runTextGeneration(id, messages) {
+                stoppingCriteria.reset();
+                const streamer = new TextStreamer(generator.tokenizer, {
+                    skip_prompt: true,
+                    skip_special_tokens: true,
+                    callback_function: (text) => {
+                        post({ type: 'chunk', id, text });
+                    }
+                });
+                await generator(messages, {
+                    max_new_tokens: 512,
+                    do_sample: false,
+                    streamer,
+                    stopping_criteria: stoppingCriteria
+                });
+            }
+
+            async function handleTextGenerate(id, messages) {
+                if (!generator) {
+                    post({
+                        type: 'error',
+                        id,
+                        message: 'Model is not initialized.'
+                    });
+                    return;
+                }
+                const gen = { id, type: 'text', messages, handling: false };
+                activeGen = gen;
+                try {
+                    await runTextGeneration(id, messages);
+                    if (activeGen === gen) {
+                        activeGen = null;
+                        post({ type: 'done', id });
+                    }
+                } catch (error) {
+                    if (activeGen !== gen || gen.handling) {
+                        return;
+                    }
+                    if (
+                        currentDevice === 'webgpu' &&
+                        (await fallbackToCpuAndRetry(error.message))
+                    ) {
+                        return;
+                    }
+                    if (activeGen === gen) {
+                        activeGen = null;
+                    }
+                    post({ type: 'error', id, message: error.message });
+                }
+            }
+
+            async function runVisionGeneration(id, prompt, imageUrl) {
+                stoppingCriteria.reset();
+                const image = await RawImage.fromURL(imageUrl);
+                const messages = [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'image' },
+                            { type: 'text', text: prompt }
+                        ]
+                    }
+                ];
+                const text = visionProcessor.apply_chat_template(messages, {
+                    add_generation_prompt: true
+                });
+                const inputs = await visionProcessor(text, [image]);
+                const streamer = new TextStreamer(visionProcessor.tokenizer, {
+                    skip_prompt: true,
+                    skip_special_tokens: true,
+                    callback_function: (chunk) => {
+                        post({ type: 'chunk', id, text: chunk });
+                    }
+                });
+                await visionModel.generate({
+                    ...inputs,
+                    max_new_tokens: 1024,
+                    streamer,
+                    stopping_criteria: stoppingCriteria
+                });
+            }
+
+            async function handleVisionGenerate(id, prompt, imageUrl) {
+                if (!visionModel || !visionProcessor) {
+                    post({
+                        type: 'error',
+                        id,
+                        message: 'Vision model is not initialized.'
+                    });
+                    return;
+                }
+                const gen = { id, type: 'vision', prompt, imageUrl, handling: false };
+                activeGen = gen;
+                try {
+                    await runVisionGeneration(id, prompt, imageUrl);
+                    if (activeGen === gen) {
+                        activeGen = null;
+                        post({ type: 'done', id });
+                    }
+                } catch (error) {
+                    if (activeGen !== gen || gen.handling) {
+                        return;
+                    }
+                    if (
+                        currentDevice === 'webgpu' &&
+                        (await fallbackToCpuAndRetry(error.message))
+                    ) {
+                        return;
+                    }
+                    if (activeGen === gen) {
+                        activeGen = null;
+                    }
+                    post({ type: 'error', id, message: error.message });
+                }
+            }
+
+            window.addEventListener('unhandledrejection', (event) => {
+                const message =
+                    (event.reason && (event.reason.message || event.reason)) ||
+                    '';
+                if (
+                    currentDevice === 'webgpu' &&
+                    activeGen &&
+                    !activeGen.handling &&
+                    isGpuError(message)
+                ) {
+                    event.preventDefault();
+                    fallbackToCpuAndRetry(message);
+                }
+            });
+
+            window.addEventListener('error', (event) => {
+                const message =
+                    (event.error && event.error.message) || event.message || '';
+                if (
+                    currentDevice === 'webgpu' &&
+                    activeGen &&
+                    !activeGen.handling &&
+                    isGpuError(message)
+                ) {
+                    event.preventDefault();
+                    fallbackToCpuAndRetry(message);
+                }
+            });
+
+            window.addEventListener('message', (event) => {
+                const data = event.data;
+                if (!data || data.namespace !== NAMESPACE) {
+                    return;
+                }
+                if (data.type === 'init') {
+                    handleInit(data.modelId, data.task);
+                } else if (data.type === 'generate') {
+                    if (task === 'vision') {
+                        handleVisionGenerate(data.id, data.prompt, data.image);
+                    } else {
+                        handleTextGenerate(data.id, data.messages);
+                    }
+                } else if (data.type === 'stop') {
+                    stoppingCriteria.interrupt();
+                    if (activeAbortController) {
+                        activeAbortController.abort();
+                    }
+                }
+            });
+
+            post({ type: 'ready' });
+        </script>
+    </body>
+</html>

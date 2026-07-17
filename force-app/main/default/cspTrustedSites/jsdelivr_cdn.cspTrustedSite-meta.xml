@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CspTrustedSite xmlns="http://soap.sforce.com/2006/04/metadata">
+    <context>All</context>
+    <description>Downloads the ONNX runtime WebAssembly binary for the on-device Vision OCR local engine.</description>
+    <endpointUrl>https://cdn.jsdelivr.net</endpointUrl>
+    <isActive>true</isActive>
+    <isApplicableToConnectSrc>true</isApplicableToConnectSrc>
+</CspTrustedSite>

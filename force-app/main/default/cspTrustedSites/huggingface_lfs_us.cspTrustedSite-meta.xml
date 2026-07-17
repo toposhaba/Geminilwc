@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CspTrustedSite xmlns="http://soap.sforce.com/2006/04/metadata">
+    <context>All</context>
+    <description>Downloads vision model weight files (LFS, US region) for the on-device Vision OCR local engine.</description>
+    <endpointUrl>https://cdn-lfs-us-1.huggingface.co</endpointUrl>
+    <isActive>true</isActive>
+    <isApplicableToConnectSrc>true</isApplicableToConnectSrc>
+</CspTrustedSite>

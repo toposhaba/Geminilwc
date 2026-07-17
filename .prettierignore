@@ -1,0 +1,10 @@
+# List files/directories below to ignore them when running prettier
+**/staticresources/**
+.localdevserver
+.sfdx
+.vscode
+coverage
+
+# LWC configuration files
+**/lwc/jsconfig.json
+**/lwc/.eslintrc.json

@@ -1,0 +1,32 @@
+# Salesforce cache
+.sfdx/
+.sf/
+.localdevserver/
+deploy-options.json
+
+# LWC VSCode autocomplete
+**/lwc/jsconfig.json
+
+# LWC Jest coverage reports
+coverage/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependency directories
+node_modules/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# Salesforce local metadata cache
+.localdevserver
+
+# Mac OS
+.DS_Store

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>62.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Gemini Nano Chat</masterLabel>
+    <description>Runs Chrome's built-in Gemini Nano on-device via the Prompt API, with a client-side Transformers.js fallback model.</description>
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__HomePage</target>
+        <target>lightning__RecordPage</target>
+        <target>lightningCommunity__Page</target>
+        <target>lightningCommunity__Default</target>
+    </targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__AppPage,lightning__HomePage,lightning__RecordPage">
+            <property
+                name="fallbackModelId"
+                type="String"
+                label="Fallback model"
+                default="onnx-community/Qwen2.5-0.5B-Instruct"
+                description="Hugging Face model id (ONNX) used when Chrome's built-in Gemini Nano is unavailable."
+            />
+        </targetConfig>
+        <targetConfig targets="lightningCommunity__Default">
+            <property
+                name="fallbackModelId"
+                type="String"
+                label="Fallback model"
+                default="onnx-community/Qwen2.5-0.5B-Instruct"
+                description="Hugging Face model id (ONNX) used when Chrome's built-in Gemini Nano is unavailable."
+            />
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>
