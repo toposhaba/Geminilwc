@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Gemini Nano Chat demo</title>
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <header class="page-header">
+            <a class="back" href="./index.html">Back</a>
+            <h1>On-Device Gemini Nano Chat</h1>
+        </header>
+        <div class="layout">
+            <section class="panel">
+                <div class="banner" id="status">
+                    Checking on-device model availability…
+                </div>
+                <progress
+                    id="progress"
+                    class="hidden"
+                    max="100"
+                    value="0"
+                ></progress>
+                <div class="conversation" id="conversation">
+                    Start a conversation with the on-device model.
+                </div>
+                <label for="prompt">Your message</label>
+                <textarea
+                    id="prompt"
+                    rows="3"
+                    placeholder="Ask Gemini Nano anything…"
+                ></textarea>
+                <p class="error" id="error"></p>
+                <div class="actions">
+                    <button id="clear" type="button">Clear</button>
+                    <div>
+                        <button id="fallback" type="button">
+                            Load local fallback model
+                        </button>
+                        <button id="send" class="brand" type="button" disabled>
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+        <iframe
+            class="engine"
+            id="engine"
+            title="Local LLM engine"
+            src="../force-app/main/default/staticresources/localLlmEngine/index.html"
+        ></iframe>
+        <script type="module">
+            import {
+                createRunner,
+                promptApiAvailability,
+                promptStreaming
+            } from "./engine-client.js";
+
+            const status = document.getElementById("status");
+            const conversation = document.getElementById("conversation");
+            const prompt = document.getElementById("prompt");
+            const send = document.getElementById("send");
+            const clear = document.getElementById("clear");
+            const fallback = document.getElementById("fallback");
+            const error = document.getElementById("error");
+            const progress = document.getElementById("progress");
+            const runner = createRunner(document.getElementById("engine"));
+            const messages = [];
+            let engine = "none";
+            let busy = false;
+
+            function setBusy(value) {
+                busy = value;
+                send.disabled =
+                    busy || !prompt.value.trim() || engine === "none";
+            }
+
+            function render() {
+                if (!messages.length) {
+                    conversation.textContent =
+                        "Start a conversation with the on-device model.";
+                    return;
+                }
+                conversation.innerHTML = "";
+                messages.forEach((message) => {
+                    const div = document.createElement("div");
+                    div.className = `message ${message.role}`;
+                    div.innerHTML = `<span class="role">${message.role}</span>${message.text}`;
+                    conversation.appendChild(div);
+                });
+                conversation.scrollTop = conversation.scrollHeight;
+            }
+
+            async function detect() {
+                const availability = await promptApiAvailability();
+                if (
+                    availability === "available" ||
+                    availability === "readily"
+                ) {
+                    engine = "gemini";
+                    status.textContent = "Gemini Nano is ready on this device.";
+                    fallback.classList.add("hidden");
+                } else if (
+                    availability === "downloadable" ||
+                    availability === "after-download"
+                ) {
+                    engine = "gemini";
+                    status.textContent =
+                        "Gemini Nano can be downloaded. Send a message to start.";
+                    fallback.classList.add("hidden");
+                } else {
+                    engine = "none";
+                    status.textContent =
+                        "This browser does not expose Gemini Nano. Load the local fallback model to continue.";
+                }
+                setBusy(false);
+            }
+
+            document
+                .getElementById("engine")
+                .addEventListener("engineprogress", (event) => {
+                    progress.classList.remove("hidden");
+                    progress.value = Math.round(event.detail.loaded * 100);
+                    status.textContent = `Downloading fallback model (${progress.value}%)…`;
+                });
+            document
+                .getElementById("engine")
+                .addEventListener("enginechunk", (event) => {
+                    messages[messages.length - 1].text = event.detail.fullText;
+                    render();
+                });
+
+            fallback.addEventListener("click", async () => {
+                error.textContent = "";
+                progress.classList.remove("hidden");
+                status.textContent = "Downloading fallback model…";
+                try {
+                    const result = await runner.initialize(
+                        "HuggingFaceTB/SmolLM2-135M-Instruct",
+                        "text"
+                    );
+                    engine = "local";
+                    status.textContent = `Fallback model is running locally (${result.device}).`;
+                    progress.classList.add("hidden");
+                    fallback.classList.add("hidden");
+                    setBusy(false);
+                } catch (err) {
+                    error.textContent = err.message;
+                }
+            });
+
+            send.addEventListener("click", async () => {
+                const text = prompt.value.trim();
+                if (!text || busy || engine === "none") {
+                    return;
+                }
+                prompt.value = "";
+                messages.push({ role: "user", text });
+                messages.push({ role: "assistant", text: "" });
+                render();
+                setBusy(true);
+                error.textContent = "";
+                try {
+                    if (engine === "gemini") {
+                        await promptStreaming(text, (full) => {
+                            messages[messages.length - 1].text = full;
+                            render();
+                        });
+                    } else {
+                        const history = [
+                            {
+                                role: "system",
+                                content:
+                                    "You are a helpful assistant. Keep answers concise."
+                            },
+                            ...messages.slice(0, -1).map((message) => ({
+                                role: message.role,
+                                content: message.text
+                            }))
+                        ];
+                        const full = await runner.generate(history);
+                        messages[messages.length - 1].text = full;
+                        render();
+                    }
+                } catch (err) {
+                    error.textContent = err.message;
+                    messages.pop();
+                    render();
+                } finally {
+                    setBusy(false);
+                }
+            });
+
+            prompt.addEventListener("input", () => setBusy(busy));
+            prompt.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    send.click();
+                }
+            });
+            clear.addEventListener("click", () => {
+                messages.length = 0;
+                render();
+            });
+
+            detect();
+        </script>
+    </body>
+</html>

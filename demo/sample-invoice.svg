@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="640">
+  <rect width="100%" height="100%" fill="#ffffff"/>
+  <text x="48" y="64" font-family="Arial" font-size="32" font-weight="700">Acme Robotics</text>
+  <text x="48" y="96" font-family="Arial" font-size="16" fill="#444">INVOICE #INV-1042</text>
+  <text x="620" y="64" font-family="Arial" font-size="16">Date: 12 March 2026</text>
+  <text x="620" y="88" font-family="Arial" font-size="16">Due: 26 March 2026</text>
+  <text x="48" y="150" font-family="Arial" font-size="16">Bill to</text>
+  <text x="48" y="176" font-family="Arial" font-size="20" font-weight="700">Northwind Traders</text>
+  <text x="48" y="202" font-family="Arial" font-size="16">1200 Market Street, Suite 400</text>
+  <text x="48" y="226" font-family="Arial" font-size="16">Austin, TX 78701</text>
+  <rect x="48" y="270" width="804" height="40" fill="#032d60"/>
+  <text x="64" y="296" font-family="Arial" font-size="16" fill="#ffffff">Item</text>
+  <text x="430" y="296" font-family="Arial" font-size="16" fill="#ffffff">Qty</text>
+  <text x="530" y="296" font-family="Arial" font-size="16" fill="#ffffff">Unit</text>
+  <text x="740" y="296" font-family="Arial" font-size="16" fill="#ffffff">Amount</text>
+  <text x="64" y="348" font-family="Arial" font-size="18">Vision inspection camera</text>
+  <text x="430" y="348" font-family="Arial" font-size="18">2</text>
+  <text x="530" y="348" font-family="Arial" font-size="18">$1,250.00</text>
+  <text x="740" y="348" font-family="Arial" font-size="18">$2,500.00</text>
+  <text x="64" y="388" font-family="Arial" font-size="18">On-device OCR license</text>
+  <text x="430" y="388" font-family="Arial" font-size="18">1</text>
+  <text x="530" y="388" font-family="Arial" font-size="18">$890.00</text>
+  <text x="740" y="388" font-family="Arial" font-size="18">$890.00</text>
+  <text x="64" y="428" font-family="Arial" font-size="18">Priority support (12 months)</text>
+  <text x="430" y="428" font-family="Arial" font-size="18">1</text>
+  <text x="530" y="428" font-family="Arial" font-size="18">$240.00</text>
+  <text x="740" y="428" font-family="Arial" font-size="18">$240.00</text>
+  <text x="530" y="500" font-family="Arial" font-size="20" font-weight="700">Total due</text>
+  <text x="700" y="500" font-family="Arial" font-size="20" font-weight="700">$3,630.00</text>
+  <text x="48" y="580" font-family="Arial" font-size="14" fill="#555">Pay by ACH to Acme Robotics. Memo INV-1042</text>
+</svg>

@@ -1,0 +1,190 @@
+:root {
+    color-scheme: light;
+    --navy: #032d60;
+    --blue: #0b5cab;
+    --border: #c9c9c9;
+    --bg: #f3f3f3;
+    --card: #ffffff;
+    --text: #181818;
+    --muted: #5c5c5c;
+}
+* {
+    box-sizing: border-box;
+}
+body {
+    margin: 0;
+    font-family: "Salesforce Sans", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+.app-header,
+.page-header {
+    background: var(--navy);
+    color: white;
+    padding: 1.5rem 2rem;
+}
+.eyebrow {
+    margin: 0 0 0.25rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+h1,
+h2 {
+    margin: 0 0 0.5rem;
+}
+.lede,
+.status {
+    color: #d8e6f3;
+    max-width: 48rem;
+}
+.status {
+    padding: 1rem 2rem;
+    color: var(--muted);
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+}
+.card {
+    display: block;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1.25rem;
+    text-decoration: none;
+    color: inherit;
+}
+.card span {
+    color: var(--blue);
+    font-weight: 600;
+}
+.layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    padding: 1rem 2rem 2rem;
+}
+.panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+.banner {
+    background: #f3f3f3;
+    border-radius: 0.25rem;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+.conversation {
+    min-height: 16rem;
+    max-height: 24rem;
+    overflow: auto;
+    background: #fafaf9;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+}
+.message {
+    max-width: 85%;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    white-space: pre-wrap;
+}
+.message.user {
+    margin-left: auto;
+    background: #eef4ff;
+    border: 1px solid #d8e3ff;
+}
+.message.assistant {
+    background: white;
+    border: 1px solid var(--border);
+}
+.message .role {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    opacity: 0.6;
+}
+label {
+    display: block;
+    font-size: 0.8rem;
+    margin: 0.75rem 0 0.25rem;
+}
+textarea,
+select,
+input[type="text"] {
+    width: 100%;
+    font: inherit;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+}
+.actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+button {
+    font: inherit;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border);
+    background: white;
+    padding: 0.45rem 0.9rem;
+    cursor: pointer;
+}
+button.brand {
+    background: var(--blue);
+    color: white;
+    border-color: var(--blue);
+}
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.preview {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+    background: #fafaf9;
+}
+.preview img {
+    max-width: 100%;
+    max-height: 18rem;
+    display: block;
+    margin: 0 auto;
+}
+.result {
+    white-space: pre-wrap;
+    background: #fafaf9;
+    border: 1px solid var(--border);
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+    min-height: 8rem;
+}
+.error {
+    color: #ba0517;
+}
+progress {
+    width: 100%;
+}
+.hidden {
+    display: none;
+}
+iframe.engine {
+    display: none;
+    width: 0;
+    height: 0;
+    border: 0;
+}
+a.back {
+    color: #d8e6f3;
+}
