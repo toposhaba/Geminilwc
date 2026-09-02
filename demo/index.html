@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>On-Device AI Demo</title>
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <header class="app-header">
+            <div>
+                <p class="eyebrow">Salesforce LWC playground</p>
+                <h1>On-Device AI Demo</h1>
+            </div>
+            <p class="lede">
+                Same engines as the Lightning components: Chrome Gemini Nano
+                first, Transformers.js fallback in the bundled iframe. No
+                Salesforce org required for this playground.
+            </p>
+        </header>
+        <main class="grid">
+            <a class="card" href="./chat.html">
+                <h2>Gemini Nano Chat</h2>
+                <p>
+                    Stream a conversation with the on-device language model.
+                    Falls back to Qwen 0.5B in the browser when the Prompt API
+                    is missing.
+                </p>
+                <span>Open chat</span>
+            </a>
+            <a class="card" href="./ocr.html">
+                <h2>Vision OCR</h2>
+                <p>
+                    Extract text from a sample invoice using Gemini Nano vision
+                    or SmolVLM running locally in the engine iframe.
+                </p>
+                <span>Open OCR</span>
+            </a>
+        </main>
+        <p class="status" id="probe">Checking Prompt API…</p>
+        <script type="module">
+            const probe = document.getElementById("probe");
+            try {
+                if (!("LanguageModel" in window)) {
+                    probe.textContent =
+                        "Prompt API is not exposed in this browser. Chat and OCR will use the local Transformers.js fallback.";
+                } else {
+                    const availability = await LanguageModel.availability();
+                    probe.textContent = `Prompt API availability: ${availability}`;
+                }
+            } catch (error) {
+                probe.textContent = `Prompt API check failed: ${error.message}`;
+            }
+        </script>
+    </body>
+</html>

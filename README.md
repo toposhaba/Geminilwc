@@ -90,6 +90,22 @@ sf project deploy start --source-dir force-app --target-org myOrg
 
 Then add the **Gemini Nano Chat** or **Vision OCR (On-Device)** component to any Lightning App/Home/Record page via the Lightning App Builder, or drop them into an Experience Cloud page.
 
+This project also ships a Lightning app named **On-Device AI** (`On_Device_AI`) with a two-column **On-Device AI Demo** app page that already places both components side by side.
+
+## Browser playground (no Salesforce org)
+
+A standalone playground lives in `demo/` and uses the same engine iframe as the LWCs:
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1
+# then open http://127.0.0.1:8765/demo/
+```
+
+- `demo/chat.html` — Gemini Nano when the Prompt API can create a session, otherwise the bundled Transformers.js fallback.
+- `demo/ocr.html` — Vision OCR against `demo/sample-invoice.png`.
+
+This is the fastest way to demo the engines in Chrome without deploying metadata.
+
 ## Notes on Lightning Web Security
 
 The component accesses the built-in AI globals (`window.LanguageModel`, with a fallback to the legacy `window.ai.languageModel`) through `window`, which is compatible with Lightning Web Security (LWS). The Transformers.js fallback deliberately avoids the LWS sandbox entirely by running in its own iframe.

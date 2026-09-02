@@ -224,7 +224,7 @@
                 }
             }
 
-            async function runTextGeneration(id, messages) {
+            async function runTextGeneration(id, messages, maxNewTokens) {
                 stoppingCriteria.reset();
                 const streamer = new TextStreamer(generator.tokenizer, {
                     skip_prompt: true,
@@ -234,14 +234,14 @@
                     }
                 });
                 await generator(messages, {
-                    max_new_tokens: 512,
+                    max_new_tokens: maxNewTokens || 512,
                     do_sample: false,
                     streamer,
                     stopping_criteria: stoppingCriteria
                 });
             }
 
-            async function handleTextGenerate(id, messages) {
+            async function handleTextGenerate(id, messages, maxNewTokens) {
                 if (!generator) {
                     post({
                         type: 'error',
@@ -250,10 +250,16 @@
                     });
                     return;
                 }
-                const gen = { id, type: 'text', messages, handling: false };
+                const gen = {
+                    id,
+                    type: 'text',
+                    messages,
+                    maxNewTokens,
+                    handling: false
+                };
                 activeGen = gen;
                 try {
-                    await runTextGeneration(id, messages);
+                    await runTextGeneration(id, messages, gen.maxNewTokens);
                     if (activeGen === gen) {
                         activeGen = null;
                         post({ type: 'done', id });
@@ -380,7 +386,11 @@
                     if (task === 'vision') {
                         handleVisionGenerate(data.id, data.prompt, data.image);
                     } else {
-                        handleTextGenerate(data.id, data.messages);
+                        handleTextGenerate(
+                            data.id,
+                            data.messages,
+                            data.maxNewTokens
+                        );
                     }
                 } else if (data.type === 'stop') {
                     stoppingCriteria.interrupt();

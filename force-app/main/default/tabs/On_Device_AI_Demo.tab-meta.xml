@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Demo page for on-device Gemini Nano chat and Vision OCR.</description>
+    <flexiPage>On_Device_AI_Demo</flexiPage>
+    <label>On-Device AI Demo</label>
+    <motif>Custom67:Hands</motif>
+</CustomTab>

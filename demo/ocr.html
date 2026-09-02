@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Vision OCR demo</title>
+        <link rel="stylesheet" href="./styles.css" />
+    </head>
+    <body>
+        <header class="page-header">
+            <a class="back" href="./index.html">Back</a>
+            <h1>On-Device Vision OCR</h1>
+        </header>
+        <div class="layout">
+            <section class="panel">
+                <div class="banner" id="status">
+                    Checking on-device vision model…
+                </div>
+                <progress
+                    id="progress"
+                    class="hidden"
+                    max="100"
+                    value="0"
+                ></progress>
+                <label for="engine">Engine</label>
+                <select id="engineSelect">
+                    <option value="auto">
+                        Auto (prefer built-in Gemini Nano)
+                    </option>
+                    <option value="gemini">Chrome built-in Gemini Nano</option>
+                    <option value="local">Local model (Transformers.js)</option>
+                </select>
+                <label for="file">Image</label>
+                <input
+                    id="file"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                />
+                <p>
+                    <a href="./sample-invoice.png" download
+                        >Use the bundled sample invoice</a
+                    >
+                </p>
+                <div class="preview hidden" id="previewWrap">
+                    <img id="preview" alt="Selected document" />
+                </div>
+                <p class="error" id="error"></p>
+                <div class="actions">
+                    <button id="loadSample" type="button">
+                        Load sample invoice
+                    </button>
+                    <button id="extract" class="brand" type="button" disabled>
+                        Extract text
+                    </button>
+                </div>
+                <pre class="result" id="result"></pre>
+            </section>
+        </div>
+        <iframe
+            class="engine"
+            id="engine"
+            title="Local LLM engine"
+            src="../force-app/main/default/staticresources/localLlmEngine/index.html"
+        ></iframe>
+        <script type="module">
+            import {
+                createRunner,
+                promptApiAvailability,
+                promptStreaming
+            } from "./engine-client.js";
+
+            const status = document.getElementById("status");
+            const progress = document.getElementById("progress");
+            const engineSelect = document.getElementById("engineSelect");
+            const fileInput = document.getElementById("file");
+            const preview = document.getElementById("preview");
+            const previewWrap = document.getElementById("previewWrap");
+            const extract = document.getElementById("extract");
+            const result = document.getElementById("result");
+            const error = document.getElementById("error");
+            const runner = createRunner(document.getElementById("engine"));
+            let geminiAvailability = "unsupported";
+            let imageFile;
+            let imageUrl;
+            let localReady = false;
+
+            const promptText = `Extract all text content from this image in English **exactly as it appears**, without modification, summarization, or omission.
+Format the output in markdown:
+- Use headers (#, ##, ###) **only if they appear in the image**
+- Preserve original lists (-, *, numbered lists) as they are
+- Maintain all text formatting (bold, italics, underlines) exactly as seen
+- **Do not add, interpret, or restructure any content**`;
+
+            function resolvedEngine() {
+                if (engineSelect.value === "auto") {
+                    return geminiAvailability === "available" ||
+                        geminiAvailability === "downloadable"
+                        ? "gemini"
+                        : "local";
+                }
+                return engineSelect.value;
+            }
+
+            function refreshStatus() {
+                const engine = resolvedEngine();
+                if (engine === "gemini") {
+                    status.textContent =
+                        "Using Chrome's built-in Gemini Nano (on-device).";
+                } else if (localReady) {
+                    status.textContent =
+                        "Local vision model is ready (runs in your browser).";
+                } else {
+                    status.textContent =
+                        "Local vision model will download on first run.";
+                }
+                extract.disabled = !imageFile;
+            }
+
+            async function detect() {
+                geminiAvailability = await promptApiAvailability([
+                    { type: "image" }
+                ]);
+                refreshStatus();
+            }
+
+            async function setImage(file) {
+                imageFile = file;
+                imageUrl = URL.createObjectURL(file);
+                preview.src = imageUrl;
+                previewWrap.classList.remove("hidden");
+                extract.disabled = false;
+            }
+
+            document
+                .getElementById("engine")
+                .addEventListener("engineprogress", (event) => {
+                    progress.classList.remove("hidden");
+                    progress.value = Math.round(event.detail.loaded * 100);
+                    status.textContent = `Downloading vision model (${progress.value}%)…`;
+                });
+            document
+                .getElementById("engine")
+                .addEventListener("enginechunk", (event) => {
+                    result.textContent = event.detail.fullText;
+                });
+
+            fileInput.addEventListener("change", () => {
+                if (fileInput.files[0]) {
+                    setImage(fileInput.files[0]);
+                }
+            });
+
+            document
+                .getElementById("loadSample")
+                .addEventListener("click", async () => {
+                    const response = await fetch("./sample-invoice.png");
+                    const blob = await response.blob();
+                    await setImage(
+                        new File([blob], "sample-invoice.png", {
+                            type: "image/png"
+                        })
+                    );
+                });
+
+            extract.addEventListener("click", async () => {
+                if (!imageFile) {
+                    return;
+                }
+                error.textContent = "";
+                result.textContent = "";
+                extract.disabled = true;
+                try {
+                    const engine = resolvedEngine();
+                    if (engine === "gemini") {
+                        await promptStreaming(
+                            [
+                                {
+                                    role: "user",
+                                    content: [
+                                        { type: "image", value: imageFile },
+                                        { type: "text", value: promptText }
+                                    ]
+                                }
+                            ],
+                            (full) => {
+                                result.textContent = full;
+                            }
+                        );
+                    } else {
+                        if (!localReady) {
+                            await runner.initialize(
+                                "HuggingFaceTB/SmolVLM-256M-Instruct",
+                                "vision"
+                            );
+                            localReady = true;
+                            progress.classList.add("hidden");
+                        }
+                        const dataUrl = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(imageFile);
+                        });
+                        result.textContent = await runner.generate({
+                            prompt: promptText,
+                            image: dataUrl
+                        });
+                    }
+                    refreshStatus();
+                } catch (err) {
+                    error.textContent = err.message;
+                } finally {
+                    extract.disabled = !imageFile;
+                }
+            });
+
+            engineSelect.addEventListener("change", refreshStatus);
+            detect();
+        </script>
+    </body>
+</html>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomApplication xmlns="http://soap.sforce.com/2006/04/metadata">
+    <brand>
+        <headerColor>#032D60</headerColor>
+        <shouldOverrideOrgTheme>false</shouldOverrideOrgTheme>
+    </brand>
+    <description>Demo app for Chrome on-device Gemini Nano chat and Vision OCR Lightning Web Components.</description>
+    <formFactors>Large</formFactors>
+    <isNavAutoTempTabsDisabled>false</isNavAutoTempTabsDisabled>
+    <isNavPersonalizationDisabled>false</isNavPersonalizationDisabled>
+    <label>On-Device AI</label>
+    <navType>Standard</navType>
+    <tabs>standard-home</tabs>
+    <tabs>On_Device_AI_Demo</tabs>
+    <uiType>Lightning</uiType>
+</CustomApplication>

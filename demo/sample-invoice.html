@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <style>
+            body {
+                margin: 0;
+                font-family: Arial, sans-serif;
+            }
+            .page {
+                width: 900px;
+                height: 640px;
+                padding: 48px;
+                box-sizing: border-box;
+                background: #fff;
+            }
+            h1 {
+                margin: 0;
+                font-size: 32px;
+            }
+            .meta {
+                color: #444;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 28px;
+            }
+            th {
+                background: #032d60;
+                color: #fff;
+                text-align: left;
+                padding: 10px;
+            }
+            td {
+                padding: 10px;
+                border-bottom: 1px solid #eee;
+            }
+            .total {
+                text-align: right;
+                font-size: 20px;
+                font-weight: 700;
+                margin-top: 24px;
+            }
+            .foot {
+                color: #555;
+                font-size: 14px;
+                margin-top: 48px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <div style="display: flex; justify-content: space-between">
+                <div>
+                    <h1>Acme Robotics</h1>
+                    <p class="meta">INVOICE #INV-1042</p>
+                </div>
+                <div>
+                    <p>Date: 12 March 2026</p>
+                    <p>Due: 26 March 2026</p>
+                </div>
+            </div>
+            <p>Bill to</p>
+            <p>
+                <strong>Northwind Traders</strong><br />1200 Market Street,
+                Suite 400<br />Austin, TX 78701
+            </p>
+            <table>
+                <tr>
+                    <th>Item</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Amount</th>
+                </tr>
+                <tr>
+                    <td>Vision inspection camera</td>
+                    <td>2</td>
+                    <td>$1,250.00</td>
+                    <td>$2,500.00</td>
+                </tr>
+                <tr>
+                    <td>On-device OCR license</td>
+                    <td>1</td>
+                    <td>$890.00</td>
+                    <td>$890.00</td>
+                </tr>
+                <tr>
+                    <td>Priority support (12 months)</td>
+                    <td>1</td>
+                    <td>$240.00</td>
+                    <td>$240.00</td>
+                </tr>
+            </table>
+            <p class="total">Total due $3,630.00</p>
+            <p class="foot">Pay by ACH to Acme Robotics. Memo INV-1042</p>
+        </div>
+    </body>
+</html>
